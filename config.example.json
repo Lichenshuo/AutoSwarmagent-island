@@ -18,5 +18,6 @@
       "at": "2026-11-01T08:00:00Z"
     }
   },
-  "anthropic_admin_key": ""
+  "anthropic_admin_key": "",
+  "cloud_sessions": true
 }

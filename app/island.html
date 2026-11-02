@@ -126,8 +126,8 @@ const $ = s => document.querySelector(s);
 const island = $('#island');
 const OPEN_W = 560, COMPACT_H = 40, TOP = 6;
 const S = { data: null, open: false, prev: new Map(), toastUntil: 0, compactW: 240, openH: 300, dismissed: new Set() };
-const NAMES = { codex: 'Codex', opencode: 'OpenCode', 'claude-code': 'Claude Code' };
-const MONO = { codex: 'CX', opencode: 'OC', 'claude-code': 'CC' };
+const NAMES = { codex: 'Codex', opencode: 'OpenCode', 'claude-code': 'Claude Code', 'claude-cloud': '云端 Claude' };
+const MONO = { codex: 'CX', opencode: 'OC', 'claude-code': 'CC', 'claude-cloud': '云' };
 const BAD = ['failed', 'lost', 'cancelled', 'unknown'];
 const ALERT_WINDOW = 24 * 3600;
 const api = () => window.pywebview?.api;
@@ -154,7 +154,7 @@ const tone = left => left == null ? 'rgba(255,255,255,.28)' : left > 50 ? 'var(-
 const alerts = calls => calls.filter(c => !c.probe && BAD.includes(c.state) && !c.superseded && !S.dismissed.has(c.call_id)
   && now() - (c.finished_at || c.created_at || 0) < ALERT_WINDOW);
 /* Who: the AutoSwarm agent name (cx, oc, sv …) when the main agent gave one, else the product. */
-const who = c => c.name || NAMES[c.provider] || c.provider;
+const who = c => c.name || (c.provider === 'claude-cloud' ? '云端·' + [...(c.prompt || '会话')].slice(0, 8).join('') : NAMES[c.provider] || c.provider);
 const model = m => {
   if (!m) return null;
   m = m.replace(/^anthropic\//, '');
@@ -223,11 +223,11 @@ function quotaLine(side, name, w) {
   return `<div class="line num" style="color:${tone(w?.left)}">${halfIcon(side)}<span style="color:var(--t2)">${name}</span>
     <b>${pct(w)}</b><em>${note}</em></div>`;
 }
-function quotaTile(name, info, letter) {
+function quotaTile(name, info, letter, hint) {
   const q = quota(info);
   const plan = info?.plan ? ' · ' + String(info.plan).replace(/^./, ch => ch.toUpperCase()) : '';
-  return `<div class="tile">${splitRing(q, letter, 46)}<div style="min-width:0">
-    <div class="tile-k">${name}${esc(plan)}</div>${quotaLine('left', '5 小时', q.short)}${quotaLine('right', '本周', q.long)}</div></div>`;
+  return `<div class="tile"${hint ? ` title="${esc(hint)}"` : ''}>${splitRing(q, letter, 46)}<div style="min-width:0">
+    <div class="tile-k">${name}${hint ? ' <span style="font-weight:500;opacity:.75">含云端</span>' : ''}${esc(plan)}</div>${quotaLine('left', '5 小时', q.short)}${quotaLine('right', '本周', q.long)}</div></div>`;
 }
 /* Single ring for the API credit: remaining share of everything topped up. */
 function creditRing(pct, size) {
@@ -272,7 +272,7 @@ function item(c) {
   } else {
     side = `<span class="is">完成</span><div class="ts num">${c.finished_at ? ago(c.finished_at) : ''}</div>`;
   }
-  return `<div class="item" data-id="${c.call_id}"><div class="mono">${esc(c.name || MONO[c.provider] || '··')}</div>
+  return `<div class="item" data-id="${c.call_id}"${c.url ? ` data-url="${esc(c.url)}"` : ''}><div class="mono">${esc(c.name || MONO[c.provider] || '··')}</div>
     <div style="min-width:0">
       <div class="it"><span class="who">${esc(who(c))}</span><span class="head">${esc(head)}</span></div>
       ${doing ? `<div class="doing ${cls}">${esc(doing)}</div>` : ''}
@@ -281,7 +281,7 @@ function item(c) {
 }
 
 function full(d) {
-  $('#tiles').innerHTML = quotaTile('Claude', d.claude, 'C') + quotaTile('Codex', d.codex, 'X') + apiTile(d.api);
+  $('#tiles').innerHTML = quotaTile('Claude', d.claude, 'C', '桌面端主 agent 和云端 agent 共用这份订阅额度') + quotaTile('Codex', d.codex, 'X') + apiTile(d.api);
   const calls = d.calls.filter(c => !c.probe);
   const active = calls.filter(c => c.state === 'running' || c.state === 'waiting');
   const bad = alerts(calls);
@@ -407,7 +407,10 @@ $('#lists').addEventListener('click', async e => {
     ids.forEach(id => S.dismissed.add(id));
     render();
     await api()?.dismiss(ids);
-  } else if (e.target.closest('.item')) api()?.open_dashboard();
+  } else if (e.target.closest('.item')) {
+    const url = e.target.closest('.item').dataset.url;
+    url ? api()?.open_url(url) : api()?.open_dashboard();
+  }
 });
 window.addEventListener('pywebviewready', async () => {
   (await api().dismissed() || []).forEach(id => S.dismissed.add(id));

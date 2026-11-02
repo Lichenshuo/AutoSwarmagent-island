@@ -114,6 +114,11 @@ class Api:
         anchor = "".join(ch for ch in str(anchor or "") if ch.isalnum())
         webbrowser.open(f"http://127.0.0.1:{server.PORT}/" + (f"#{anchor}" if anchor else ""))
 
+    def open_url(self, url):
+        # Only cloud-session links; never let the page open arbitrary programs or URLs.
+        if isinstance(url, str) and url.startswith("https://claude.ai/code/"):
+            webbrowser.open(url)
+
     def quit(self):
         if self._window:
             self._window.destroy()
