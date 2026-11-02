@@ -514,7 +514,8 @@ def billing_snapshot(events):
     snap = credit.get("snapshot")  # what the Console showed at a known moment
     if out["source"] is None and snap and snap.get("at"):
         at = iso_to_ts(snap["at"]) or 0
-        since = sum(cost for ts, cost in events if ts > at)
+        # Local costs undercount real billing; scale by the factor learned between calibrations.
+        since = sum(cost for ts, cost in events if ts > at) * float(credit.get("factor") or 1.0)
         same_month = utc_day(at)[:7] == month
         out.update(source="estimate", as_of=at,
                    remaining=snap["balance"] - since if snap.get("balance") is not None else None,
