@@ -6,9 +6,7 @@ import argparse
 import copy
 import json
 import os
-import shutil
 import sqlite3
-import subprocess
 import sys
 import threading
 import time
@@ -395,127 +393,6 @@ def claude_snapshot():
         "ready": _claude_state["ready"],
         "sessions": sorted(sessions.values(), key=lambda s: s["last_ts"], reverse=True)[:12],
     }
-
-
-# ── Cloud Claude Code sessions (claude.ai/code) ─────────────────────────
-# Cloud sessions run on Anthropic's machines and leave nothing on disk here. The local
-# `claude` CLI can list them for the signed-in Claude account through its SDK control
-# protocol (`list_cloud_sessions`), so we ask it in the background every minute.
-# They spend the same subscription quota as the Claude rings, so no separate quota.
-
-CLOUD_EVERY = 60
-CLOUD_RECENT = 24 * 3600          # finished cloud sessions stay visible this long
-_cloud = {"at": 0.0, "busy": False, "sessions": [], "error": None, "ok_at": None}
-_cloud_lock = threading.Lock()
-
-
-def claude_exe():
-    config = read_json(CONFIG_FILE) or {}
-    for cand in (config.get("claude_exe"), shutil.which("claude"),
-                 HOME / ".local/bin/claude.exe", HOME / ".local/bin/claude"):
-        if cand and Path(cand).exists():
-            return str(cand)
-    return None
-
-
-def _cloud_fetch():
-    exe = claude_exe()
-    if not exe:
-        return None, "没找到 claude 命令行（装好 Claude Code 并 claude auth login 后显示云端会话）"
-    requests = [
-        {"type": "control_request", "request_id": "ai-init", "request": {"subtype": "initialize"}},
-        {"type": "control_request", "request_id": "ai-cloud", "request": {"subtype": "list_cloud_sessions", "user_initiated": False}},
-    ]
-    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    proc = subprocess.Popen([exe, "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose"],
-                            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                            cwd=str(HOME), creationflags=flags)
-    timer = threading.Timer(45, proc.kill)
-    timer.start()
-    try:
-        proc.stdin.write(("\n".join(json.dumps(r) for r in requests) + "\n").encode())
-        proc.stdin.flush()
-        for raw in proc.stdout:
-            try:
-                msg = json.loads(raw)
-            except ValueError:
-                continue
-            if msg.get("type") != "control_response":
-                continue
-            resp = msg.get("response") or {}
-            if resp.get("request_id") != "ai-cloud":
-                continue
-            if resp.get("subtype") == "error":
-                return None, resp.get("error") or "云端会话读取失败"
-            body = resp.get("response") or {}
-            if body.get("status") != "ok":
-                return None, body.get("message") or body.get("reason") or "云端会话暂不可用"
-            return body.get("sessions") or [], None
-        return None, "claude 命令行没有返回云端会话（版本太旧？）"
-    finally:
-        timer.cancel()
-        try:
-            proc.stdin.close()
-        except OSError:
-            pass
-        try:
-            proc.kill()
-        except OSError:
-            pass
-
-
-def _cloud_refresh():
-    try:
-        sessions, error = _cloud_fetch()
-    except Exception as exc:
-        sessions, error = None, str(exc)
-    with _cloud_lock:
-        _cloud.update(busy=False, error=error)
-        if sessions is not None:
-            _cloud.update(sessions=sessions, ok_at=time.time())
-
-
-def cloud_snapshot():
-    """Recent cloud sessions as delegation-like rows; refreshed in the background, never blocks."""
-    config = read_json(CONFIG_FILE) or {}
-    if config.get("cloud_sessions") is False:
-        return {"enabled": False, "calls": []}
-    with _cloud_lock:
-        if not _cloud["busy"] and time.time() - _cloud["at"] > CLOUD_EVERY:
-            _cloud.update(at=time.time(), busy=True)
-            threading.Thread(target=_cloud_refresh, daemon=True).start()
-        sessions, error, ok_at = list(_cloud["sessions"]), _cloud["error"], _cloud["ok_at"]
-    states = {"running": "running", "pending": "running", "requires_action": "waiting",
-              "failed": "failed", "idle": "completed"}
-    now, calls = time.time(), []
-    for s in sessions:
-        # "bridge" = a Remote Control session, i.e. Claude Desktop / a terminal on this PC, not a cloud agent.
-        if s.get("environment_kind") == "bridge":
-            continue
-        state = states.get(s.get("status"))
-        ts = iso_to_ts(s.get("updated_at"))
-        if not state or not ts or (state == "completed" and now - ts > CLOUD_RECENT) or (state == "failed" and now - ts > CLOUD_RECENT):
-            continue
-        repo = s.get("repository") or {}
-        where = "/".join(x for x in (repo.get("owner"), repo.get("name")) if x)
-        where = " · ".join(x for x in (where, s.get("branch")) if x)
-        sid = str(s.get("id") or "")
-        calls.append({
-            "call_id": "cloud:" + sid, "agent_id": "cloud:" + sid, "provider": "claude-cloud",
-            "name": None, "model": None, "effort": None, "workspace": where or None,
-            "prompt": s.get("title") or "云端会话", "content": "", "error": "云端会话失败" if state == "failed" else None,
-            "state": state, "created_at": ts, "finished_at": ts if state in ("completed", "failed") else None,
-            "session": sid, "usage": None,
-            "activity": {"text": where or "云端运行中", "at": ts} if state in ("running", "waiting") else None,
-            "approvals": [{"request_id": None, "kind": "cloud", "created_at": ts, "summary": "在 claude.ai/code 里等你回复"}]
-                         if state == "waiting" else [],
-            "probe": False, "round": 1, "superseded": False,
-            "url": "https://claude.ai/code/" + sid if sid else None,
-            "environment": s.get("environment_kind"),
-        })
-    return {"enabled": True, "calls": calls, "error": error, "updated_at": ok_at,
-            "running": sum(1 for c in calls if c["state"] == "running"),
-            "waiting": sum(1 for c in calls if c["state"] == "waiting")}
 
 
 # ── Claude API spend (OpenCode) ──────────────────────────────────────────
@@ -950,9 +827,7 @@ def snapshot():
     # Quotas and spend change slowly; delegation state is read fresh every time.
     codex_sessions, codex_limits = cached("codex", 20, codex_snapshot)
     api, opencode_sessions = cached("api", 20, api_snapshot)
-    cloud = cloud_snapshot()
-    calls = calls_snapshot(codex_sessions, opencode_sessions) + cloud["calls"]
-    calls.sort(key=lambda c: c["created_at"] or 0, reverse=True)
+    calls = calls_snapshot(codex_sessions, opencode_sessions)
     today = local_day(time.time())
     real = [c for c in calls if not c["probe"]]
     return {
@@ -961,7 +836,6 @@ def snapshot():
         "codex": codex_limits,
         "api": api,
         "calls": calls,
-        "cloud": {k: v for k, v in cloud.items() if k != "calls"},
         "summary": {
             "calls_today": sum(1 for c in real if c["created_at"] and local_day(c["created_at"]) == today),
             "running": sum(1 for c in real if c["state"] == "running"),

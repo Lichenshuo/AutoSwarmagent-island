@@ -182,7 +182,6 @@ footer{margin:clamp(48px,8vw,80px) 0 40px;font-size:12px;color:var(--text-3);lin
         <button data-f="all" class="active">全部</button>
         <button data-f="codex">Codex</button>
         <button data-f="opencode">OpenCode</button>
-        <button data-f="claude-cloud">云端</button>
         <button data-f="running">进行中</button>
         <button data-f="bad">异常</button>
       </div>
@@ -218,8 +217,8 @@ footer{margin:clamp(48px,8vw,80px) 0 40px;font-size:12px;color:var(--text-3);lin
 <script>
 const $ = s => document.querySelector(s);
 const state = { data: null, filter: 'all', open: new Set() };
-const NAMES = { codex: 'Codex', opencode: 'OpenCode', 'claude-code': 'Claude Code', 'claude-cloud': '云端 Claude' };
-const MONO = { codex: 'CX', opencode: 'OC', 'claude-code': 'CC', 'claude-cloud': '云' };
+const NAMES = { codex: 'Codex', opencode: 'OpenCode', 'claude-code': 'Claude Code' };
+const MONO = { codex: 'CX', opencode: 'OC', 'claude-code': 'CC' };
 const PLAN = { pro: 'Pro 订阅', max: 'Max 订阅', plus: 'Plus 订阅', team: 'Team', free: '免费版' };
 const CHEV = '<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>';
 
@@ -306,19 +305,6 @@ function subscriptionCard(name, role, plan, info, extra, emptyHint) {
     <div class="card-foot"><div class="card-foot-inner"><span>${foot}</span></div></div></div>`;
 }
 
-/* Cloud agents (claude.ai/code): same Claude subscription windows, plus one row per agent. */
-function cloudCard(d) {
-  const cl = d.cloud || {};
-  const list = d.calls.filter(c => c.provider === 'claude-cloud');
-  const word = { running: '进行中', waiting: '待回复', completed: '完成', failed: '失败' };
-  const rows = list.slice(0, 6).map(c => `<div class="kv-row"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
-      <a href="${esc(c.url)}" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">${esc(c.prompt)}</a></span>
-      <span class="num" style="flex:none;${c.state === 'waiting' ? 'color:var(--heat)' : ''}">${word[c.state] || esc(c.state)}</span></div>`).join('');
-  const extra = `<div class="kv"><div class="kv-row"><span>在跑 / 待回复</span><span class="num">${cl.running || 0} / ${cl.waiting || 0}</span></div>${rows}</div>`;
-  const hint = esc(cl.enabled === false ? '已在 config.json 关闭' : (cl.error || (list.length ? '额度读取不到：在终端执行 claude auth login' : '还没有云端 agent')));
-  return subscriptionCard('云端 agent', 'claude.ai/code · 与 Claude 订阅同一额度池', null, d.claude, extra, hint);
-}
-
 function apiCard(api) {
   const max = Math.max(...api.daily.map(d => d.cost), 0.01);
   const bars = api.daily.map((d, i) => `<div class="bar ${i === api.daily.length - 1 ? 'today' : ''}" title="${d.day} ${usd(d.cost)}" style="height:${Math.max(4, d.cost / max * 100)}%"></div>`).join('');
@@ -354,7 +340,6 @@ function renderCards(d) {
     <div class="kv-row"><span>近 7 天 token</span><span class="num">${tokens(c.tokens_week)}</span></div></div>`;
   $('#cards').innerHTML =
     subscriptionCard('Claude', '主 agent · 桌面端', c.plan, c, claudeExtra, '在 Claude 桌面端打开 设置 → 用量，额度会同步过来') +
-    cloudCard(d) +
     subscriptionCard('Codex', '副 agent · 小活', d.codex?.plan, d.codex, '', '用一次 Codex 后显示') +
     apiCard(d.api);
 }
@@ -369,15 +354,14 @@ function stateBadge(c) {
   return `<span class="state bad">${map[c.state] || esc(c.state)}</span>`;
 }
 function callRow(c) {
-  const title = (c.state === 'running' && c.activity && c.provider !== 'claude-cloud' ? c.activity.text + ' — ' : '') + (c.prompt.split('\n').find(l => l.trim()) || '（空任务）').trim();
-  const dur = c.provider === 'claude-cloud' ? (c.created_at ? ago(c.created_at) + '有动静' : null) : c.finished_at ? span(c.finished_at - c.created_at) : (c.state === 'running' ? '已运行 ' + span(Date.now() / 1000 - c.created_at) : null);
+  const title = (c.state === 'running' && c.activity ? c.activity.text + ' — ' : '') + (c.prompt.split('\n').find(l => l.trim()) || '（空任务）').trim();
+  const dur = c.finished_at ? span(c.finished_at - c.created_at) : (c.state === 'running' ? '已运行 ' + span(Date.now() / 1000 - c.created_at) : null);
   const u = c.usage;
   const meta = [c.name, NAMES[c.provider] || c.provider, model(c.model) || '默认模型', c.effort ? '思考 ' + c.effort : null,
     c.round > 1 ? `第 ${c.round} 轮` : null, base(c.workspace), dur,
     u?.tokens ? '会话 ' + tokens(u.tokens) + ' token' : null, u?.cost != null ? usd(u.cost) : null].filter(Boolean).join(' · ');
   const open = state.open.has(c.call_id) ? 'open' : '';
-  const result = c.url ? `云端会话的对话内容在 claude.ai 上：\n<a href="${esc(c.url)}" target="_blank" rel="noopener">${esc(c.url)}</a>`
-    : c.error ? `<span class="err">${esc(c.error)}</span>\n\n${esc(c.content)}` : esc(c.content || (c.state === 'running' ? '还在执行…' : '（没有返回内容）'));
+  const result = c.error ? `<span class="err">${esc(c.error)}</span>\n\n${esc(c.content)}` : esc(c.content || (c.state === 'running' ? '还在执行…' : '（没有返回内容）'));
   return `<div class="row ${open}" data-id="${c.call_id}">
     <div class="row-main">
       <div class="mono">${MONO[c.provider] || '··'}</div>
@@ -431,7 +415,6 @@ function render() {
   if (!d) return;
   const s = d.summary;
   $('#lede').innerHTML = `今天派活 <b>${s.calls_today}</b> 次 · 进行中 <b>${s.running}</b>${s.failed ? ` · 异常 <b style="color:var(--heat)">${s.failed}</b>` : ''} · Claude API 今日 <b>${usd(d.api.today)}</b>`;
-  if (d.cloud?.enabled && d.cloud.error) $('#lede').innerHTML += `<br><span style="font-size:13px;color:var(--text-3)">云端会话：${esc(d.cloud.error)}</span>`;
   renderCards(d);
   renderCalls(d);
   renderSessions(d);
