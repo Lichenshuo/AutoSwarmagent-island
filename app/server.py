@@ -98,8 +98,10 @@ def parse_codex_file(path):
                 usage = (p.get("info") or {}).get("total_token_usage")
                 if usage:
                     info["tokens"] = usage
-                if p.get("rate_limits"):
-                    info["rate"] = p["rate_limits"]
+                rl = p.get("rate_limits")
+                # Codex also logs other limit families (e.g. "premium") with empty windows; keep the real ones.
+                if rl and (rl.get("primary") or rl.get("secondary")):
+                    info["rate"] = rl
                     info["rate_ts"] = iso_to_ts(row.get("timestamp")) or 0
     return info
 
