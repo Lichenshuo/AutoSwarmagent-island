@@ -110,8 +110,9 @@ class Api:
     def hit(self, x, y, w, h, radius, inner_width):
         self._shape = (float(x), float(y), float(w), float(h), float(radius), float(inner_width) or 1.0)
 
-    def open_dashboard(self):
-        webbrowser.open(f"http://127.0.0.1:{server.PORT}/")
+    def open_dashboard(self, anchor=""):
+        anchor = "".join(ch for ch in str(anchor or "") if ch.isalnum())
+        webbrowser.open(f"http://127.0.0.1:{server.PORT}/" + (f"#{anchor}" if anchor else ""))
 
     def quit(self):
         if self._window:

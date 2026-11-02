@@ -402,7 +402,8 @@ def utc_day(ts):
     return datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%d")
 
 
-def api_snapshot():
+def api_snapshot(events_only=False):
+    """Local Claude API spend. events_only=True returns just [(ts, cost), ...] without billing."""
     now = time.time()
     today = utc_day(now)
     week = {utc_day(now - i * 86400) for i in range(7)}
@@ -445,6 +446,8 @@ def api_snapshot():
         except Exception as exc:
             src["error"] = str(exc)
         sources.append(src)
+    if events_only:
+        return events
     total = {k: sum(s[k] for s in sources) for k in ("today", "week", "d30", "month", "total")}
     result = {"sources": sources, **total, "estimated": True,
               "daily": [{"day": d, "cost": round(v, 4)} for d, v in sorted(daily.items())]}
@@ -515,15 +518,95 @@ def billing_snapshot(events):
     if out["source"] is None and snap and snap.get("at"):
         at = iso_to_ts(snap["at"]) or 0
         # Local costs undercount real billing; scale by the factor learned between calibrations.
-        since = sum(cost for ts, cost in events if ts > at) * float(credit.get("factor") or 1.0)
+        factor = float(credit.get("factor") or 1.0)
+        local = sum(cost for ts, cost in events if ts > at)
+        since = local * factor
         same_month = utc_day(at)[:7] == month
-        out.update(source="estimate", as_of=at,
-                   remaining=snap["balance"] - since if snap.get("balance") is not None else None,
+        remaining = snap["balance"] - since if snap.get("balance") is not None else None
+        age = now - at
+        out.update(source="estimate", as_of=at, factor=factor, local_since=round(local, 4),
+                   est_since=round(since, 4),
+                   remaining=max(0.0, remaining) if remaining is not None else None,
                    month=(snap.get("month_spend", 0) + since) if same_month else
-                         sum(cost for ts, cost in events if utc_day(ts)[:7] == month))
+                         sum(cost for ts, cost in events if utc_day(ts)[:7] == month) * factor)
+        # The estimate drifts: flag it once it is old or most of the estimate is extrapolation.
+        if age > STALE_AFTER or (snap.get("balance") and since > 0.3 * snap["balance"]):
+            out["stale"] = True
     if out.get("remaining") is not None and total:
         out["remaining_pct"] = max(0.0, min(100.0, out["remaining"] / total * 100))
     return out
+
+
+STALE_AFTER = 6 * 3600            # an estimate older than this is shown as "please recalibrate"
+FACTOR_RANGE = (1.0, 30.0)        # guard against nonsense factors from tiny samples
+FACTOR_MIN_LOCAL = 0.5            # need at least this much locally recorded spend to learn a factor
+
+
+def local_cost_events():
+    return api_snapshot(events_only=True)
+
+
+def calibrate(balance, month_spend=None, total=None):
+    """Record what the Console shows right now and learn how much local costs undercount real billing.
+
+    factor = (previous balance − new balance) ÷ local spend recorded in between, blended with the
+    previous factor so one noisy interval does not swing the estimate. Returns a summary dict.
+    """
+    balance = float(balance)
+    if balance < 0:
+        raise ValueError("balance must be >= 0")
+    with _calibrate_lock:
+        config = read_json(CONFIG_FILE) or {}
+        credit = dict(config.get("api_credit") or {})
+        old = credit.get("snapshot") or {}
+        old_factor = float(credit.get("factor") or 1.0)
+        now = time.time()
+        summary = {"balance": balance, "factor": old_factor, "learned": None}
+        at = iso_to_ts(old.get("at"))
+        real = None
+        if at and old.get("balance") is not None:
+            local = sum(cost for ts, cost in local_cost_events() if ts > at)
+            real = float(old["balance"]) - balance
+            summary.update(local=round(local, 4), real=round(real, 4))
+            if real < -0.01:
+                summary["note"] = "balance went up (top-up?) — factor kept"
+                if total is None and credit.get("total") is not None:
+                    credit["total"] = round(float(credit["total"]) - real, 2)  # count the top-up
+            elif local >= FACTOR_MIN_LOCAL:
+                learned = min(max(real / local, FACTOR_RANGE[0]), FACTOR_RANGE[1])
+                factor = learned if "factor" not in credit else 0.7 * learned + 0.3 * old_factor
+                summary.update(learned=round(learned, 2), factor=round(factor, 2))
+                credit["factor"] = round(factor, 2)
+            else:
+                summary["note"] = f"local spend ${local:.2f} too small to learn a factor — kept"
+        if month_spend is None:
+            same_month = at and utc_day(at)[:7] == utc_day(now)[:7]
+            if same_month and old.get("month_spend") is not None and real is not None and real > 0:
+                month_spend = float(old["month_spend"]) + real
+            elif not same_month:
+                month_spend = None
+            else:
+                month_spend = old.get("month_spend")
+        if total is not None:
+            credit["total"] = float(total)
+        snap = {"balance": round(balance, 2), "at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
+        if month_spend is not None:
+            snap["month_spend"] = round(float(month_spend), 2)
+        credit["snapshot"] = snap
+        history = list(credit.get("history") or [])
+        history.append({**snap, "factor": credit.get("factor", 1.0)})
+        credit["history"] = history[-20:]
+        config["api_credit"] = credit
+        tmp = CONFIG_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(config, ensure_ascii=False, indent=2), "utf-8")
+        os.replace(tmp, CONFIG_FILE)
+    with _ttl_lock:
+        _ttl_cache.pop("api", None)
+    summary["month_spend"] = snap.get("month_spend")
+    return summary
+
+
+_calibrate_lock = threading.Lock()
 
 
 def _add_cost(src, daily, cost, ts, today, week, d30, month):
@@ -790,6 +873,27 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._send(b"not found", "text/plain", 404)
 
+    def do_POST(self):
+        # Only the dashboard on this machine may write: reject cross-site requests from other pages.
+        origin = self.headers.get("Origin")
+        host = self.headers.get("Host", "")
+        if self.path != "/api/calibrate":
+            return self._send(b"not found", "text/plain", 404)
+        if host.split(":")[0] not in ("127.0.0.1", "localhost") or (
+                origin and origin.split("://")[-1].split(":")[0] not in ("127.0.0.1", "localhost")) or \
+                "application/json" not in (self.headers.get("Content-Type") or ""):
+            return self._send(b'{"error":"forbidden"}', "application/json", 403)
+        try:
+            length = min(int(self.headers.get("Content-Length") or 0), 4096)
+            body = json.loads(self.rfile.read(length) or b"{}")
+            opt = lambda k: None if body.get(k) in (None, "") else float(body[k])
+            result = calibrate(float(body["balance"]), opt("month_spend"), opt("total"))
+            self._send(json.dumps(result, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
+        except (KeyError, ValueError, TypeError) as exc:
+            self._send(json.dumps({"error": f"bad input: {exc}"}).encode(), "application/json", 400)
+        except Exception as exc:
+            self._send(json.dumps({"error": str(exc)}).encode(), "application/json", 500)
+
 
 PORT = 8765
 
@@ -811,7 +915,14 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=PORT)
     parser.add_argument("--open", action="store_true")
+    parser.add_argument("--calibrate", type=float, metavar="BALANCE",
+                        help="record the API balance the Console shows now (USD) and exit")
+    parser.add_argument("--month", type=float, help="with --calibrate: this month's spend shown in the Console")
+    parser.add_argument("--total", type=float, help="with --calibrate: total credit ever topped up")
     args = parser.parse_args()
+    if args.calibrate is not None:
+        print(json.dumps(calibrate(args.calibrate, args.month, args.total), ensure_ascii=False))
+        return 0
     url = f"http://127.0.0.1:{args.port}/"
     server = start_server(args.port)
     if args.open:

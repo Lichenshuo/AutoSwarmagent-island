@@ -121,6 +121,23 @@ h2{font-size:clamp(20px,3.4vw,26px);font-weight:700;letter-spacing:-0.02em;line-
 .empty{padding:34px 24px;text-align:center;font-size:14px;color:var(--text-3)}
 .note{margin-top:12px;font-size:12.5px;color:var(--text-3);padding-left:4px}
 
+/* calibration dialog */
+dialog.cal{border:none;border-radius:var(--r-panel);padding:28px;width:min(420px,calc(100vw - 32px));
+  background:var(--surface);color:var(--text);box-shadow:var(--sh-lift);margin:auto}
+dialog.cal::backdrop{background:rgba(0,0,0,0.25);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+dialog.cal h3{font-size:21px;font-weight:700;letter-spacing:-0.02em}
+dialog.cal p{font-size:13px;color:var(--text-2);margin-top:6px}
+dialog.cal label{display:block;margin-top:16px;font-size:12px;font-weight:600;color:var(--text-2)}
+dialog.cal input{width:100%;margin-top:6px;height:40px;padding:0 12px;border:1px solid var(--faint);border-radius:10px;
+  font:inherit;font-size:16px;font-variant-numeric:tabular-nums;background:var(--bg);color:var(--text)}
+dialog.cal input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(0,113,227,0.18)}
+dialog.cal .act{display:flex;justify-content:flex-end;gap:8px;margin-top:22px}
+dialog.cal .primary{background:var(--accent);color:#fff}
+dialog.cal .primary:hover{background:#0077ed}
+dialog.cal .msg{margin-top:12px;font-size:12.5px;color:var(--text-2);min-height:1em}
+.link-btn{border:none;background:none;color:var(--accent-link);font:inherit;font-size:12px;cursor:pointer;padding:0}
+.link-btn:hover{text-decoration:underline}
+.warn-text{color:var(--heat)}
 footer{margin:clamp(48px,8vw,80px) 0 40px;font-size:12px;color:var(--text-3);line-height:1.8}
 
 @media (max-width:680px){
@@ -178,6 +195,18 @@ footer{margin:clamp(48px,8vw,80px) 0 40px;font-size:12px;color:var(--text-3);lin
     </div>
     <div id="sessions"></div>
   </section>
+
+  <dialog class="cal" id="cal">
+    <form method="dialog" id="cal-form">
+      <h3>校准 API 余额</h3>
+      <p>打开 <a href="https://console.anthropic.com/settings/billing" target="_blank" rel="noopener">Console → Billing</a>，把上面显示的数字填进来。每次校准都会用"实际花掉的钱 ÷ 本地记录到的花费"自动更新修正系数，之后的估算会越来越准。</p>
+      <label>当前余额（Credit balance，美元）<input id="cal-balance" type="number" step="0.01" min="0" required inputmode="decimal" placeholder="例如 5.00"></label>
+      <label>本月已用（可选，Usage 页的本月花费）<input id="cal-month" type="number" step="0.01" min="0" inputmode="decimal" placeholder="留空则自动推算"></label>
+      <label>累计充值总额（可选，用于计算剩余比例）<input id="cal-total" type="number" step="0.01" min="0" inputmode="decimal" placeholder="例如 200"></label>
+      <div class="msg num" id="cal-msg"></div>
+      <div class="act"><button class="pill-btn" value="cancel" formnovalidate>取消</button><button class="pill-btn primary" id="cal-save" value="save">保存</button></div>
+    </form>
+  </dialog>
 
   <footer>
     数据来源：AutoSwarm 派活记录、Codex 本地会话、Claude Code 会话与状态栏、OpenCode 数据库。<br>
@@ -283,10 +312,11 @@ function apiCard(api) {
   return `<div class="card">
     <div class="card-top"><div><div class="card-name">Claude API</div><div class="role">OpenCode 副 agent 与桌面端</div></div><span class="tag">按量计费</span></div>
     ${api.billing?.remaining != null
-      ? `<div class="big num">${usd(api.billing.remaining)}</div><div class="caption">剩余额度${api.billing.total ? '（共 ' + usd(api.billing.total) + '）' : ''} · ${api.billing.source === 'admin' ? 'Anthropic 账单' : '按上次校准估算'}</div>`
+      ? `<div class="big num">${api.billing.source === 'estimate' ? '<small style="margin:0 2px 0 0">≈</small>' : ''}${usd(api.billing.remaining)}</div><div class="caption">剩余额度${api.billing.total ? '（共 ' + usd(api.billing.total) + '）' : ''} · ${api.billing.source === 'admin' ? 'Anthropic 账单' : calNote(api.billing)}</div>`
       : `<div class="big num">${usd(api.today)}</div><div class="caption">今天已花费</div>`}
     <div class="kv">
       ${api.billing?.month != null ? `<div class="kv-row"><span>本月（UTC，与 Console 一致）</span><span class="num">${usd(api.billing.month)}${api.billing.monthly_limit ? ' / ' + usd(api.billing.monthly_limit) : ''}</span></div>` : ''}
+      ${api.estimated ? '<div class="kv-row" style="color:var(--text-3);font-size:12px"><span>以下为 OpenCode 本地记录，未乘修正系数</span><span></span></div>' : ''}
       <div class="kv-row"><span>今日（UTC）</span><span class="num">${usd(api.today)}</span></div>
       <div class="kv-row"><span>近 7 天</span><span class="num">${usd(api.week)}</span></div>
       <div class="kv-row"><span>近 30 天</span><span class="num">${usd(api.d30)}</span></div>
@@ -294,7 +324,14 @@ function apiCard(api) {
     </div>
     <div class="bars">${bars}</div>
     <div class="bars-cap"><span>14 天前</span><span>今天</span></div>
-    <div class="card-foot"><div class="card-foot-inner"><span>${sources ? '今日 · ' + sources : '暂无 API 用量'}</span></div></div></div>`;
+    <div class="card-foot"><div class="card-foot-inner"><span>${sources ? '今日 · ' + sources : '暂无 API 用量'}</span>
+      ${api.billing?.source !== 'admin' ? '<button class="link-btn" data-cal>校准余额</button>' : ''}</div></div></div>`;
+}
+function calNote(b) {
+  if (!b.as_of) return '本地估算，<span class="warn-text">尚未校准</span>';
+  const f = b.factor && b.factor !== 1 ? ` · 修正 ×${b.factor.toFixed(1)}` : '';
+  return b.stale ? `<span class="warn-text">${ago(b.as_of)}校准，偏差可能已很大，请重新校准</span>`
+                 : `${ago(b.as_of)}校准${f}`;
 }
 
 function renderCards(d) {
@@ -409,6 +446,45 @@ $('#calls').addEventListener('click', e => {
   row.classList.toggle('open');
 });
 $('#refresh').addEventListener('click', load);
+
+/* API balance calibration */
+const cal = $('#cal');
+function openCal() {
+  const b = state.data?.api?.billing || {};
+  $('#cal-balance').value = '';
+  $('#cal-month').value = '';
+  $('#cal-total').value = b.total ?? '';
+  $('#cal-msg').textContent = b.remaining != null ? `当前估算 ${usd(b.remaining)}` : '';
+  if (!cal.open) cal.showModal();
+  $('#cal-balance').focus();
+}
+$('#cards').addEventListener('click', e => { if (e.target.closest('[data-cal]')) openCal(); });
+$('#cal-form').addEventListener('submit', async e => {
+  if (e.submitter?.value !== 'save') return;
+  e.preventDefault();
+  const num = id => $(id).value.trim() === '' ? null : Number($(id).value);
+  const body = { balance: num('#cal-balance'), month_spend: num('#cal-month'), total: num('#cal-total') };
+  if (body.balance == null || !(body.balance >= 0)) { $('#cal-msg').textContent = '请填写当前余额'; return; }
+  $('#cal-save').disabled = true;
+  try {
+    const r = await fetch('/api/calibrate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const res = await r.json();
+    if (!r.ok) throw new Error(res.error || r.status);
+    $('#cal-msg').textContent = res.learned != null
+      ? `已校准。上次以来实际花了 ${usd(res.real)}，本地只记录到 ${usd(res.local)}，修正系数更新为 ×${res.factor.toFixed(1)}`
+      : `已校准${res.note ? '（' + (res.note.startsWith('balance went up') ? '余额变多，按充值处理，系数不变' : '本地记录太少，系数不变') + '）' : ''}`;
+    await load();
+    setTimeout(() => cal.close(), 1600);
+  } catch (err) {
+    $('#cal-msg').textContent = '保存失败：' + err.message;
+  } finally {
+    $('#cal-save').disabled = false;
+  }
+});
+if (location.hash === '#calibrate') {
+  history.replaceState(null, '', location.pathname);
+  load().then(openCal);
+}
 const nav = $('#nav');
 addEventListener('scroll', () => nav.classList.toggle('scrolled', scrollY > 8), { passive: true });
 

@@ -48,8 +48,23 @@ powershell -ExecutionPolicy Bypass -File "$HOME\.claude\skills\agent-island\inst
 | Claude 额度 | 终端里已登录的 Claude Code（`claude auth login`）→ 实时；否则读 Claude 桌面端本地的用量采样（不定期更新，会标注采样时间） |
 | Codex 额度 | `~/.codex/sessions` 里最新的 `rate_limits` |
 | Claude API 花费 | OpenCode 数据库中每条消息的 `cost`；默认 `~/.local/share/opencode/opencode.db`，可在 `config.json` 里追加（见 `config.example.json`），v1 / v2 自动识别 |
+| Claude API 余额 | 有管理员密钥（`anthropic_admin_key`）时用官方 Cost API，精确；否则为"上次校准的余额 − 之后本地花费 × 修正系数"的估算 |
 | 派活记录 | AutoSwarm 的调用记录（含 Claude 桌面端 MSIX 重定向目录），状态由 AutoSwarm 自己判定 |
 | 主 agent 会话 | `~/.claude/projects` 下的会话记录（按消息 ID 去重） |
+
+## API 余额校准
+
+OpenCode 本地记录的花费通常比 Anthropic 实际账单低不少（长上下文、缓存计费，以及同一个 key 下其他程序的调用都看不到），所以没有管理员密钥时，余额只能估算：
+
+1. 打开 [Console → Billing](https://console.anthropic.com/settings/billing)，看到当前余额。
+2. 点灵动岛展开后的 **API 余额** 一栏（或仪表盘 API 卡片右下角的 **校准余额**），填入余额，保存。
+3. 每次校准都会用"两次校准之间实际花掉的钱 ÷ 本地记录到的花费"更新修正系数（与旧系数加权平均，防止一次噪声带偏），后面的估算会越来越准。余额变多时按充值处理，自动加到累计充值总额。
+
+估算超过 6 小时、或估算出的花费已超过上次余额的 30%，灵动岛上会出现橙色 **?** 提醒重新校准。也可以直接对 Claude 说"API 余额现在 xx"，或命令行：
+
+```powershell
+& "$HOME\.claude\skills\agent-island\.venv\Scripts\python.exe" "$HOME\.claude\skills\agent-island\app\server.py" --calibrate 5.00 --month 128
+```
 
 ## 结构
 

@@ -213,7 +213,7 @@ function compact(d) {
   $('#c-chips').innerHTML = chips.join('') || '<span class="idle">空闲</span>';
   const b = d.api.billing || {};
   $('#c-spend').innerHTML = b.remaining != null
-    ? `<span style="color:${tone(b.remaining_pct)}">余 ${usd(b.remaining)}</span>`
+    ? `<span style="color:${tone(b.remaining_pct)}">余 ${b.source === 'estimate' ? '≈' : ''}${usd(b.remaining)}${b.stale ? '<span style="color:var(--orange)"> ?</span>' : ''}</span>`
     : usd(d.api.today);
 }
 
@@ -243,10 +243,14 @@ function apiTile(a) {
   const value = b.remaining != null ? usd(b.remaining) : usd(a.today);
   const label = b.remaining != null ? `API 余额${b.total ? ' / ' + usd(b.total) : ''}` : 'API 今日';
   const month = b.month != null ? b.month : a.month;
-  return `<div class="tile">${creditRing(b.remaining_pct, 46)}<div style="min-width:0">
+  const note = !est ? 'Anthropic 账单 · ' + ago(b.as_of)
+    : !b.as_of ? '本地估算 · 点此校准'
+    : b.stale ? `<span style="color:var(--orange)">${ago(b.as_of)}校准 · 点此重新校准</span>`
+    : `估算 · ${ago(b.as_of)}校准${b.factor && b.factor !== 1 ? ' · ×' + b.factor.toFixed(1) : ''}`;
+  return `<div class="tile" id="api-tile" style="cursor:pointer" title="打开仪表盘校准 API 余额">${creditRing(b.remaining_pct, 46)}<div style="min-width:0">
     <div class="tile-k">${label}</div><div class="money num" style="color:${b.remaining != null ? tone(b.remaining_pct) : 'var(--t1)'}">${value}</div>
     <div class="line num" style="line-height:1.35">本月<em style="color:var(--t1);font-weight:600">${usd(month)}${b.monthly_limit ? ' / ' + usd(b.monthly_limit) : ''}</em></div>
-    <div class="line num" style="line-height:1.35">${est ? (b.as_of ? '估算 · ' + ago(b.as_of) + '校准' : '本地估算') : 'Anthropic 账单 · ' + ago(b.as_of)}</div>
+    <div class="line num" style="line-height:1.35">${note}</div>
   </div></div>`;
 }
 
@@ -392,9 +396,10 @@ addEventListener('mousemove', e => {
 });
 addEventListener('mouseup', () => { press = null; });
 island.addEventListener('dblclick', e => {
-  if (!e.target.closest('button, .item, .lists')) api()?.reset_position();
+  if (!e.target.closest('button, .item, .lists, #api-tile')) api()?.reset_position();
 });
 $('#dash').addEventListener('click', () => api()?.open_dashboard());
+document.addEventListener('click', e => { if (e.target.closest('#api-tile')) api()?.open_dashboard('calibrate'); });
 $('#quit').addEventListener('click', () => api()?.quit());
 $('#lists').addEventListener('click', async e => {
   if (e.target.closest('#dismiss')) {

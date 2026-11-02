@@ -40,3 +40,15 @@ Fetch `http://127.0.0.1:8765/api/data` (start `island.cmd` first if it is not ru
 - **Claude**: best is a signed-in terminal Claude Code (`claude auth login`); the island then reads live usage with reset times. Otherwise it falls back to Claude Desktop's local usage samples, which are only refreshed occasionally, and says how old they are.
 - **Codex**: read from the latest `rate_limits` in `~/.codex/sessions`, so it updates whenever Codex runs.
 - **API spend**: summed from per-message costs in the OpenCode databases.
+
+## API balance
+
+`api.billing` holds the balance. `source: "admin"` means exact numbers from Anthropic's Cost API (`anthropic_admin_key` in `config.json`). `source: "estimate"` means: last balance the user reported − local spend since then × `factor`. Local OpenCode costs undercount real billing (and miss other callers on the same key), so `factor` is learned automatically at each calibration (real spend ÷ local spend, smoothed). `stale: true` means the estimate is old or mostly extrapolated: say so and ask for a fresh number instead of presenting it as exact.
+
+When the user tells you the balance the Console shows (e.g. "API 余额现在 5 美元，本月 128"), record it:
+
+```
+"<skill>\.venv\Scripts\python.exe" "<skill>\app\server.py" --calibrate 5.00 --month 128
+```
+
+`--month` (this month's spend) and `--total` (all credit ever topped up) are optional. It prints the learned factor; a running island picks it up within 20 s. The user can also do this themselves: click the API tile on the island, or "校准余额" on the dashboard's API card.

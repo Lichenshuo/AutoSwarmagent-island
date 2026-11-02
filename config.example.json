@@ -1,6 +1,22 @@
 {
   "opencode_dbs": [
-    { "label": "OpenCode", "path": "~/.local/share/opencode/opencode.db" },
-    { "label": "AutoSwarm child (OpenCode v1)", "path": "D:/path/to/opencode-v1/home/data/opencode/opencode.db" }
-  ]
+    {
+      "label": "OpenCode",
+      "path": "~/.local/share/opencode/opencode.db"
+    },
+    {
+      "label": "AutoSwarm child (OpenCode v1)",
+      "path": "D:/path/to/opencode-v1/home/data/opencode/opencode.db"
+    }
+  ],
+  "api_monthly_limit": 500,
+  "api_credit": {
+    "total": 200,
+    "snapshot": {
+      "balance": 25.37,
+      "month_spend": 108.11,
+      "at": "2026-11-01T08:00:00Z"
+    }
+  },
+  "anthropic_admin_key": ""
 }
