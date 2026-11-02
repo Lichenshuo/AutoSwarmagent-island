@@ -306,6 +306,19 @@ function subscriptionCard(name, role, plan, info, extra, emptyHint) {
     <div class="card-foot"><div class="card-foot-inner"><span>${foot}</span></div></div></div>`;
 }
 
+/* Cloud agents (claude.ai/code): same Claude subscription windows, plus one row per agent. */
+function cloudCard(d) {
+  const cl = d.cloud || {};
+  const list = d.calls.filter(c => c.provider === 'claude-cloud');
+  const word = { running: '进行中', waiting: '待回复', completed: '完成', failed: '失败' };
+  const rows = list.slice(0, 6).map(c => `<div class="kv-row"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+      <a href="${esc(c.url)}" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">${esc(c.prompt)}</a></span>
+      <span class="num" style="flex:none;${c.state === 'waiting' ? 'color:var(--heat)' : ''}">${word[c.state] || esc(c.state)}</span></div>`).join('');
+  const extra = `<div class="kv"><div class="kv-row"><span>在跑 / 待回复</span><span class="num">${cl.running || 0} / ${cl.waiting || 0}</span></div>${rows}</div>`;
+  const hint = esc(cl.enabled === false ? '已在 config.json 关闭' : (cl.error || (list.length ? '额度读取不到：在终端执行 claude auth login' : '还没有云端 agent')));
+  return subscriptionCard('云端 agent', 'claude.ai/code · 与 Claude 订阅同一额度池', null, d.claude, extra, hint);
+}
+
 function apiCard(api) {
   const max = Math.max(...api.daily.map(d => d.cost), 0.01);
   const bars = api.daily.map((d, i) => `<div class="bar ${i === api.daily.length - 1 ? 'today' : ''}" title="${d.day} ${usd(d.cost)}" style="height:${Math.max(4, d.cost / max * 100)}%"></div>`).join('');
@@ -341,6 +354,7 @@ function renderCards(d) {
     <div class="kv-row"><span>近 7 天 token</span><span class="num">${tokens(c.tokens_week)}</span></div></div>`;
   $('#cards').innerHTML =
     subscriptionCard('Claude', '主 agent · 桌面端', c.plan, c, claudeExtra, '在 Claude 桌面端打开 设置 → 用量，额度会同步过来') +
+    cloudCard(d) +
     subscriptionCard('Codex', '副 agent · 小活', d.codex?.plan, d.codex, '', '用一次 Codex 后显示') +
     apiCard(d.api);
 }

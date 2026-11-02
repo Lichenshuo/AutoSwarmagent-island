@@ -55,7 +55,7 @@ html,body{background:transparent;overflow:hidden;font-family:var(--font);-webkit
 .full{position:absolute;inset:0;padding:20px 22px 18px;opacity:0;filter:blur(6px);transform:scale(.98);pointer-events:none;
   transition:opacity .2s var(--ease-out-quart),filter .2s,transform .2s;display:flex;flex-direction:column}
 #island.open .full{opacity:1;filter:none;transform:none;pointer-events:auto;transition-delay:.12s}
-.tiles{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+.tiles{display:grid;grid-template-columns:1fr 1fr;gap:12px 16px}
 .tile{display:flex;gap:11px;align-items:center;min-width:0}
 .tile-k{font-size:11.5px;color:var(--t3);font-weight:600;letter-spacing:.02em;white-space:nowrap;margin-bottom:3px}
 .line{display:flex;align-items:baseline;gap:5px;white-space:nowrap;font-size:11.5px;color:var(--t2);line-height:1.5}
@@ -100,6 +100,7 @@ html,body{background:transparent;overflow:hidden;font-family:var(--font);-webkit
   <div class="compact">
     <div class="normal">
       <div class="quota" id="c-claude"></div>
+      <div class="quota" id="c-cloud" title="云端 agent：圆环是它们花的 Claude 订阅额度，数字是在跑 / 等你回复的云端 agent"></div>
       <div class="quota" id="c-codex"></div>
       <div class="sep"></div>
       <div class="chips num" id="c-chips"></div>
@@ -154,7 +155,9 @@ const tone = left => left == null ? 'rgba(255,255,255,.28)' : left > 50 ? 'var(-
 const alerts = calls => calls.filter(c => !c.probe && BAD.includes(c.state) && !c.superseded && !S.dismissed.has(c.call_id)
   && now() - (c.finished_at || c.created_at || 0) < ALERT_WINDOW);
 /* Who: the AutoSwarm agent name (cx, oc, sv …) when the main agent gave one, else the product. */
-const who = c => c.name || (c.provider === 'claude-cloud' ? '云端·' + [...(c.prompt || '会话')].slice(0, 8).join('') : NAMES[c.provider] || c.provider);
+const isCloud = c => c.provider === 'claude-cloud';
+const short = (t, n) => { const a = [...(t || '会话')]; return a.length > n ? a.slice(0, n).join('') + '…' : a.join(''); };
+const who = c => c.name || (isCloud(c) ? short(c.prompt, 14) : NAMES[c.provider] || c.provider);
 const model = m => {
   if (!m) return null;
   m = m.replace(/^anthropic\//, '');
@@ -203,10 +206,15 @@ function compact(d) {
     $(id).innerHTML = splitRing(q, letter, 26)
       + `<div class="pair num"><span><i>5h</i>${pct(q.short)}</span><span><i>周</i>${pct(q.long)}</span></div>`;
   }
+  const cl = d.cloud || {};
+  $('#c-cloud').innerHTML = splitRing(quota(d.claude), '云', 26)
+    + `<div class="pair num"><span><i>在跑</i>${cl.running || 0}</span><span><i>待回复</i>${cl.waiting || 0}</span></div>`;
   const chips = [], bad = alerts(d.calls).length;
-  const names = st => d.calls.filter(c => !c.probe && c.state === st).map(who);
+  const names = st => d.calls.filter(c => !c.probe && c.state === st && !isCloud(c)).map(who);
   const label = (list, word) => list.length <= 3 ? list.join(' · ') : `${list.length} ${word}`;
   const running = names('running'), waiting = names('waiting');
+  const cloudNames = d.calls.filter(c => isCloud(c) && (c.state === 'running' || c.state === 'waiting')).map(c => '云·' + short(c.prompt, 6));
+  if (cloudNames.length) chips.push(`<span class="chip" style="color:var(--blue,#64d2ff)"><span class="dot" style="background:#64d2ff"></span>${esc(cloudNames.length <= 3 ? cloudNames.join(' · ') : cloudNames.length + ' 个云端 agent')}</span>`);
   if (running.length) chips.push(`<span class="chip"><span class="dot g"></span>${esc(label(running, '进行中'))}</span>`);
   if (waiting.length) chips.push(`<span class="chip" style="color:var(--orange)"><span class="dot o"></span>${esc(label(waiting, '待批准'))} 待批准</span>`);
   if (bad) chips.push(`<span class="chip" style="color:var(--red)"><span class="dot r"></span>${bad} 异常</span>`);
@@ -222,6 +230,17 @@ function quotaLine(side, name, w) {
   if (w) note = w.resets_at ? span(w.resets_at - now()) + '后重置' : (w.sampled ? ago(w.sampled) + '采样' : '');
   return `<div class="line num" style="color:${tone(w?.left)}">${halfIcon(side)}<span style="color:var(--t2)">${name}</span>
     <b>${pct(w)}</b><em>${note}</em></div>`;
+}
+/* Cloud agents: ring = the Claude subscription they draw from; lines = what each window has left + agent counts. */
+function cloudTile(d) {
+  const q = quota(d.claude), cl = d.cloud || {};
+  const n = d.calls.filter(isCloud).length;
+  const status = cl.enabled === false ? '已关闭'
+    : cl.error && !cl.updated_at ? '<span style="color:var(--orange)">读取不到</span>'
+    : `<b style="color:var(--t1)">${cl.running || 0}</b> 在跑 · <b style="color:${cl.waiting ? 'var(--orange)' : 'var(--t1)'}">${cl.waiting || 0}</b> 待回复 · ${n} 个`;
+  return `<div class="tile" title="云端 agent 用 Claude 订阅的 5 小时 / 每周额度（Anthropic 不单独给云端分额度）">${splitRing(q, '云', 46)}<div style="min-width:0">
+    <div class="tile-k">云端 agent</div>${quotaLine('left', '5 小时', q.short)}${quotaLine('right', '本周', q.long)}
+    <div class="num" style="font-size:11.5px;color:var(--t2);margin-top:2px;white-space:nowrap">${status}</div></div></div>`;
 }
 function quotaTile(name, info, letter, hint) {
   const q = quota(info);
@@ -276,21 +295,26 @@ function item(c) {
     <div style="min-width:0">
       <div class="it"><span class="who">${esc(who(c))}</span><span class="head">${esc(head)}</span></div>
       ${doing ? `<div class="doing ${cls}">${esc(doing)}</div>` : ''}
-      <div class="im">${esc(task(c))}</div>
+      ${isCloud(c) ? '' : `<div class="im">${esc(task(c))}</div>`}
     </div><div style="text-align:right">${side}</div></div>`;
 }
 
 function full(d) {
-  $('#tiles').innerHTML = quotaTile('Claude', d.claude, 'C', '桌面端主 agent 和云端 agent 共用这份订阅额度') + quotaTile('Codex', d.codex, 'X') + apiTile(d.api);
-  const calls = d.calls.filter(c => !c.probe);
+  $('#tiles').innerHTML = quotaTile('Claude 桌面', d.claude, 'C') + cloudTile(d) + quotaTile('Codex', d.codex, 'X') + apiTile(d.api);
+  const all = d.calls.filter(c => !c.probe);
+  const calls = all.filter(c => !isCloud(c));
   const active = calls.filter(c => c.state === 'running' || c.state === 'waiting');
-  const bad = alerts(calls);
+  const bad = alerts(all);
   const done = calls.filter(c => c.state === 'completed').slice(0, 4);
+  const rank = { waiting: 0, running: 1 };
+  const cloud = all.filter(isCloud).sort((a, b) => (rank[a.state] ?? 2) - (rank[b.state] ?? 2) || b.created_at - a.created_at).slice(0, 8);
   const keep = $('#lists').scrollTop;
   const sec = (name, list, empty, action) => `<div class="sec"><div class="sec-h"><span>${name}</span>
     ${action || `<span class="num">${list.length || ''}</span>`}</div>
     ${list.length ? list.map(item).join('') : `<div class="empty">${empty}</div>`}</div>`;
-  $('#lists').innerHTML = sec('进行中', active, '没有正在执行的副 agent')
+  const cloudEmpty = d.cloud?.error ? esc(d.cloud.error) : '没有云端 agent';
+  $('#lists').innerHTML = sec('云端 agent', cloud, cloudEmpty)
+    + sec('本地进行中', active, '没有正在执行的副 agent')
     + (bad.length ? sec(`需要关注 · ${bad.length}`, bad.slice(0, 5), '', '<button class="link" id="dismiss">忽略</button>') : '')
     + sec('最近完成', done, '还没有完成的派活');
   $('#lists').scrollTop = keep;

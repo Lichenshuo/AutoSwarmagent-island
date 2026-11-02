@@ -34,7 +34,7 @@ Fetch `http://127.0.0.1:8765/api/data` (start `island.cmd` first if it is not ru
 - `api.today | week | d30 | month`: Claude API spend in USD from OpenCode (`week` and `d30` are rolling 7 and 30 days, `month` is the calendar month); `api.sources` breaks it down per database.
 - `calls`: AutoSwarm delegations, newest first. Skip `probe: true` (installation self-checks). `state` is `running`, `waiting` (blocked on an approval, see `approvals`), `completed`, `failed`, `lost` (runner died) or `cancelled`.
 - `summary`: counts for today, running, waiting and failed.
-- Cloud Claude Code sessions (claude.ai/code) appear in `calls` with `provider: "claude-cloud"`, `url` linking to the session, and `state` running / waiting (needs a reply on claude.ai) / completed / failed. They spend the same subscription quota as `claude.windows`. `cloud.error` explains why they are missing (e.g. the island was started from inside a Claude Code session, or `claude auth login` is needed).
+- Cloud Claude Code sessions (claude.ai/code) appear in `calls` with `provider: "claude-cloud"`, `url` linking to the session, and `state` running / waiting (needs a reply on claude.ai) / completed / failed. Sessions with `environment_kind: "bridge"` (Remote Control, i.e. the local desktop/terminal session) are excluded. They spend the same subscription quota as `claude.windows` — Anthropic has no separate cloud quota; the island's separate "云" ring shows that pool next to the cloud-agent counts in `cloud.running` / `cloud.waiting`. `cloud.error` explains why they are missing (e.g. the island was started from inside a Claude Code session, or `claude auth login` is needed).
 
 ## Quota sources
 

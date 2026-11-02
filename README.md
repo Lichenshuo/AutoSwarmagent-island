@@ -46,7 +46,7 @@ powershell -ExecutionPolicy Bypass -File "$HOME\.claude\skills\agent-island\inst
 | 内容 | 来源 |
 |---|---|
 | Claude 额度 | 终端里已登录的 Claude Code（`claude auth login`）→ 实时；否则读 Claude 桌面端本地的用量采样（不定期更新，会标注采样时间） |
-| 云端 agent | 本机的 `claude` 命令行每分钟列一次你账号下 claude.ai/code 的云端会话（运行中 / 等你回复 / 完成 / 失败），点一下直接打开那个会话。云端会话和桌面端共用 Claude 订阅额度，所以 Claude 圆环标注「含云端」。需要装好 Claude Code 并 `claude auth login`；灵动岛要在 Claude 会话外启动（开机自启或双击 `island.cmd`），否则 Claude Code 出于安全不允许读取。`config.json` 里 `"cloud_sessions": false` 可关闭 |
+| 云端 agent | 本机的 `claude` 命令行每分钟列一次你账号下 claude.ai/code 的云端会话（运行中 / 等你回复 / 完成 / 失败），点一下直接打开那个会话。每个云端 agent 单独一行（标题、仓库分支、状态）；只算真正跑在云端的会话，桌面端 / 终端通过 Remote Control 同步上去的会话会被排除。灵动岛上有单独的「云」圆环：Anthropic 不给云端单独分额度，云端 agent 花的就是 Claude 订阅的 5 小时 / 每周额度，所以圆环显示这份额度还剩多少，旁边是在跑 / 待回复的云端 agent 数。需要装好 Claude Code 并 `claude auth login`；灵动岛要在 Claude 会话外启动（开机自启或双击 `island.cmd`），否则 Claude Code 出于安全不允许读取。`config.json` 里 `"cloud_sessions": false` 可关闭 |
 | Codex 额度 | `~/.codex/sessions` 里最新的 `rate_limits` |
 | Claude API 花费 | OpenCode 数据库中每条消息的 `cost`；默认 `~/.local/share/opencode/opencode.db`，可在 `config.json` 里追加（见 `config.example.json`），v1 / v2 自动识别 |
 | Claude API 余额 | 有管理员密钥（`anthropic_admin_key`）时用官方 Cost API，精确；否则为"上次校准的余额 − 之后本地花费 × 修正系数"的估算 |

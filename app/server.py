@@ -489,6 +489,9 @@ def cloud_snapshot():
               "failed": "failed", "idle": "completed"}
     now, calls = time.time(), []
     for s in sessions:
+        # "bridge" = a Remote Control session, i.e. Claude Desktop / a terminal on this PC, not a cloud agent.
+        if s.get("environment_kind") == "bridge":
+            continue
         state = states.get(s.get("status"))
         ts = iso_to_ts(s.get("updated_at"))
         if not state or not ts or (state == "completed" and now - ts > CLOUD_RECENT) or (state == "failed" and now - ts > CLOUD_RECENT):
@@ -508,8 +511,11 @@ def cloud_snapshot():
                          if state == "waiting" else [],
             "probe": False, "round": 1, "superseded": False,
             "url": "https://claude.ai/code/" + sid if sid else None,
+            "environment": s.get("environment_kind"),
         })
-    return {"enabled": True, "calls": calls, "error": error, "updated_at": ok_at}
+    return {"enabled": True, "calls": calls, "error": error, "updated_at": ok_at,
+            "running": sum(1 for c in calls if c["state"] == "running"),
+            "waiting": sum(1 for c in calls if c["state"] == "waiting")}
 
 
 # ── Claude API spend (OpenCode) ──────────────────────────────────────────
