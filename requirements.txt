@@ -1,0 +1,2 @@
+pywebview>=6.0
+autoswarm @ git+https://github.com/HKUDS/AutoSwarm.git

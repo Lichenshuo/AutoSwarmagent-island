@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Agent Island</title>
+<style>
+:root {
+  --font:-apple-system,BlinkMacSystemFont,'SF Pro Text','SF Pro Display','Helvetica Neue','PingFang SC','Microsoft YaHei',sans-serif;
+  --mono:ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+  /* Apple system colors, dark appearance */
+  --green:#30d158; --orange:#ff9f0a; --red:#ff453a; --blue:#0a84ff;
+  --t1:#f5f5f7; --t2:rgba(235,235,245,0.62); --t3:rgba(235,235,245,0.38);
+  --fill:rgba(255,255,255,0.10); --hair:rgba(255,255,255,0.10);
+  --ease-spring:cubic-bezier(0.32,0.72,0,1);
+  --ease-out-quart:cubic-bezier(0.25,1,0.5,1);
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{background:transparent;overflow:hidden;font-family:var(--font);-webkit-font-smoothing:antialiased;user-select:none;cursor:default}
+.num{font-variant-numeric:tabular-nums}
+
+#island{position:absolute;top:6px;left:50%;transform:translateX(-50%);background:#000;color:var(--t1);
+  height:40px;border-radius:20px;overflow:hidden;
+  transition:width .5s var(--ease-spring),height .5s var(--ease-spring),border-radius .5s var(--ease-spring)}
+#island.open{border-radius:34px}
+#island.closing{transition-duration:.34s}
+
+/* compact */
+.compact{position:absolute;inset:0 0 auto 0;height:40px;display:flex;align-items:center;padding:0 14px 0 9px;
+  white-space:nowrap;transition:opacity .18s var(--ease-out-quart),filter .18s}
+#island.open .compact{opacity:0;filter:blur(4px);pointer-events:none}
+.normal{display:flex;align-items:center;gap:12px;width:100%}
+.quota{display:flex;align-items:center;gap:6px}
+.ring{position:relative;flex:none}
+.ring svg{display:block;width:100%;height:100%}
+.ring b{position:absolute;inset:0;display:grid;place-items:center;font-weight:700;color:var(--t1)}
+.pair{display:flex;flex-direction:column;line-height:1.12;font-size:10.5px;font-weight:600}
+.pair span{display:flex;gap:4px;justify-content:space-between}
+.pair i{font-style:normal;color:var(--t3);font-weight:500}
+.sep{width:1px;height:16px;background:var(--hair)}
+.chips{display:flex;gap:10px;align-items:center;font-size:13px;font-weight:600}
+.chip{display:inline-flex;align-items:center;gap:6px}
+.dot{width:7px;height:7px;border-radius:50%;flex:none}
+.dot.g{background:var(--green);animation:pulse 2s infinite}
+.dot.o{background:var(--orange)}
+.dot.r{background:var(--red)}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(48,209,88,.55)}70%{box-shadow:0 0 0 6px rgba(48,209,88,0)}100%{box-shadow:0 0 0 0 rgba(48,209,88,0)}}
+.idle{color:var(--t2);font-weight:500}
+.spend{margin-left:auto;font-size:13px;font-weight:600;color:var(--t2)}
+.toast{display:none;align-items:center;gap:8px;font-size:13px;font-weight:600}
+.toast .mark{width:18px;height:18px;border-radius:50%;display:grid;place-items:center;font-size:11px;color:#000}
+#island.toasting .toast{display:flex}
+#island.toasting .normal{display:none}
+
+/* expanded */
+.full{position:absolute;inset:0;padding:20px 22px 18px;opacity:0;filter:blur(6px);transform:scale(.98);pointer-events:none;
+  transition:opacity .2s var(--ease-out-quart),filter .2s,transform .2s;display:flex;flex-direction:column}
+#island.open .full{opacity:1;filter:none;transform:none;pointer-events:auto;transition-delay:.12s}
+.tiles{display:grid;grid-template-columns:1.15fr 1.15fr 0.7fr;gap:12px}
+.tile{display:flex;gap:11px;align-items:center;min-width:0}
+.tile-k{font-size:11.5px;color:var(--t3);font-weight:600;letter-spacing:.02em;white-space:nowrap;margin-bottom:3px}
+.line{display:flex;align-items:baseline;gap:5px;white-space:nowrap;font-size:11.5px;color:var(--t2);line-height:1.5}
+.line svg{width:9px;height:9px;flex:none;align-self:center}
+.line b{font-size:16px;font-weight:700;color:var(--t1);letter-spacing:-0.02em;min-width:38px}
+.line em{font-style:normal;color:var(--t3);overflow:hidden;text-overflow:ellipsis}
+.money{font-size:24px;font-weight:700;letter-spacing:-0.03em;line-height:1.1}
+.hair{height:1px;background:var(--hair);margin:16px 0 4px}
+.lists{flex:1;overflow-y:auto;overflow-x:hidden;margin-right:-8px;padding-right:8px;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.2) transparent}
+.sec{margin-top:12px}
+.sec-h{display:flex;justify-content:space-between;align-items:center;font-size:11.5px;font-weight:600;letter-spacing:.06em;color:var(--t3);margin-bottom:4px}
+.item{display:grid;grid-template-columns:30px minmax(0,1fr) auto;gap:10px;align-items:start;padding:8px 0;cursor:pointer}
+.item + .item{border-top:1px solid var(--hair)}
+.mono{width:30px;height:30px;border-radius:9px;background:var(--fill);display:grid;place-items:center;font:700 11px var(--mono);color:var(--t1);align-self:start;margin-top:2px}
+.it{font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:-0.005em}
+.im{font-size:11.5px;color:var(--t3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+.who{font-weight:700;margin-right:7px}
+.head{font-size:11.5px;font-weight:500;color:var(--t3)}
+.doing{font-size:12.5px;color:var(--t1);opacity:.86;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;font-family:var(--font)}
+.doing.warn{color:var(--orange);opacity:1}
+.doing.bad{color:var(--red);opacity:1}
+.ts{font-size:11px;color:var(--t3);margin-top:2px}
+.is{font-size:12px;font-weight:600;color:var(--t2);text-align:right;white-space:nowrap}
+.is.g{color:var(--green)} .is.o{color:var(--orange)} .is.r{color:var(--red)}
+.empty{font-size:12.5px;color:var(--t3);padding:6px 0}
+.link{border:none;background:none;color:var(--blue);font:600 11.5px var(--font);cursor:pointer;padding:0 2px}
+.link:hover{text-decoration:underline}
+.foot{display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:10px}
+.foot span{font-size:11.5px;color:var(--t3)}
+.btns{display:flex;gap:8px}
+.btn{height:30px;padding:0 14px;border:none;border-radius:999px;background:rgba(255,255,255,0.14);color:var(--t1);
+  font:600 12.5px var(--font);cursor:pointer;transition:background .2s var(--ease-out-quart),transform .1s}
+.btn:hover{background:rgba(255,255,255,0.22)}
+.btn:active{transform:scale(.96)}
+.btn.ghost{background:transparent;color:var(--t2)}
+.btn.ghost:hover{background:rgba(255,255,255,0.08)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div id="island">
+  <div class="compact">
+    <div class="normal">
+      <div class="quota" id="c-claude"></div>
+      <div class="quota" id="c-codex"></div>
+      <div class="sep"></div>
+      <div class="chips num" id="c-chips"></div>
+      <div class="spend num" id="c-spend"></div>
+    </div>
+    <div class="toast" id="c-toast"></div>
+  </div>
+  <div class="full">
+    <div class="tiles" id="tiles"></div>
+    <div class="hair"></div>
+    <div class="lists" id="lists"></div>
+    <div class="foot">
+      <span class="num" id="updated"></span>
+      <div class="btns">
+        <button class="btn ghost" id="quit">退出</button>
+        <button class="btn" id="dash">打开仪表盘</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const island = $('#island');
+const OPEN_W = 560, COMPACT_H = 40, TOP = 6;
+const S = { data: null, open: false, prev: new Map(), toastUntil: 0, compactW: 240, openH: 300, dismissed: new Set() };
+const NAMES = { codex: 'Codex', opencode: 'OpenCode', 'claude-code': 'Claude Code' };
+const MONO = { codex: 'CX', opencode: 'OC', 'claude-code': 'CC' };
+const BAD = ['failed', 'lost', 'cancelled', 'unknown'];
+const ALERT_WINDOW = 24 * 3600;
+const api = () => window.pywebview?.api;
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const usd = v => v == null ? '—' : '$' + (v >= 100 ? v.toFixed(0) : v.toFixed(2));
+const now = () => Date.now() / 1000;
+function span(sec) {
+  sec = Math.max(0, Math.round(sec));
+  const d = Math.floor(sec / 86400), h = Math.floor(sec % 86400 / 3600), m = Math.floor(sec % 3600 / 60);
+  if (d) return `${d}天${h}时`;
+  if (h) return `${h}时${m}分`;
+  if (m) return `${m}分${String(sec % 60).padStart(2, '0')}秒`;
+  return `${sec}秒`;
+}
+function ago(ts) {
+  const s = now() - ts;
+  if (s < 90) return '刚刚';
+  if (s < 3600) return Math.floor(s / 60) + ' 分钟前';
+  if (s < 86400) return Math.floor(s / 3600) + ' 小时前';
+  return Math.floor(s / 86400) + ' 天前';
+}
+const title = c => (c.prompt.split('\n').find(l => l.trim()) || '（空任务）').trim();
+const tone = left => left == null ? 'rgba(255,255,255,.28)' : left > 50 ? 'var(--green)' : left > 20 ? 'var(--orange)' : 'var(--red)';
+const alerts = calls => calls.filter(c => !c.probe && BAD.includes(c.state) && !c.superseded && !S.dismissed.has(c.call_id)
+  && now() - (c.finished_at || c.created_at || 0) < ALERT_WINDOW);
+/* Who: the AutoSwarm agent name (cx, oc, sv …) when the main agent gave one, else the product. */
+const who = c => c.name || NAMES[c.provider] || c.provider;
+const model = m => {
+  if (!m) return null;
+  m = m.replace(/^anthropic\//, '');
+  const x = m.match(/^claude-(opus|sonnet|haiku|fable)-(\d+)(?:-(\d+))?/);
+  return x ? x[1][0].toUpperCase() + x[1].slice(1) + ' ' + x[2] + (x[3] ? '.' + x[3] : '') : m;
+};
+/* The task in one line, without the agent's own name repeated at the front. */
+const task = c => title(c).replace(new RegExp('^' + (c.name || '\\0') + '[\\s:：,，]*', 'i'), '');
+
+/* Quota windows: { short: 5-hour, long: weekly }, each { left, resets_at, sampled } or null when unknown/stale. */
+function quota(info) {
+  const out = { short: null, long: null };
+  if (!info) return out;
+  const t = now();
+  for (const w of info.windows || []) {
+    const len = w.window_minutes ? w.window_minutes * 60 : (w.key === 'five_hour' ? 18000 : 604800);
+    if (!w.resets_at && info.captured_at && t - info.captured_at > len) continue;   // too old to mean anything
+    const reset = w.resets_at && w.resets_at < t;
+    out[len <= 18000 ? 'short' : 'long'] = { left: reset ? 100 : Math.max(0, Math.round(100 - (w.used ?? 0))),
+      resets_at: reset ? null : w.resets_at, sampled: w.resets_at ? null : info.captured_at };
+  }
+  return out;
+}
+
+/* One ring, two halves: left = 5-hour window, right = weekly window. Both fill downward from the top. */
+function splitRing(q, letter, size) {
+  const c = 12, r = 9.5, gap = 7;
+  const pt = deg => [c + r * Math.sin(deg * Math.PI / 180), c - r * Math.cos(deg * Math.PI / 180)];
+  const arc = (from, to, sweep) => { const [x1, y1] = pt(from), [x2, y2] = pt(to); return `M${x1.toFixed(2)} ${y1.toFixed(2)}A${r} ${r} 0 0 ${sweep} ${x2.toFixed(2)} ${y2.toFixed(2)}`; };
+  const span = 180 - 2 * gap;
+  const half = (w, side) => {
+    const s = side === 'right' ? 1 : -1, sweep = side === 'right' ? 1 : 0;
+    const track = `<path d="${arc(s * gap, s * (180 - gap), sweep)}" stroke="rgba(255,255,255,.16)" stroke-width="2.8" fill="none" stroke-linecap="round"/>`;
+    if (!w || w.left <= 0) return track;
+    return track + `<path d="${arc(s * gap, s * (gap + span * w.left / 100), sweep)}" stroke="${tone(w.left)}" stroke-width="2.8" fill="none" stroke-linecap="round"/>`;
+  };
+  return `<div class="ring" style="width:${size}px;height:${size}px"><svg viewBox="0 0 24 24">${half(q.short, 'left')}${half(q.long, 'right')}</svg>
+    <b style="font-size:${size > 30 ? 12 : 9}px">${letter}</b></div>`;
+}
+const halfIcon = side => `<svg viewBox="0 0 10 10"><path d="M5 1A4 4 0 0 ${side === 'left' ? 0 : 1} 5 9" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>`;
+const pct = w => w ? w.left + '%' : '—';
+
+function compact(d) {
+  for (const [id, info, letter] of [['#c-claude', d.claude, 'C'], ['#c-codex', d.codex, 'X']]) {
+    const q = quota(info);
+    $(id).innerHTML = splitRing(q, letter, 26)
+      + `<div class="pair num"><span><i>5h</i>${pct(q.short)}</span><span><i>周</i>${pct(q.long)}</span></div>`;
+  }
+  const chips = [], bad = alerts(d.calls).length;
+  const names = st => d.calls.filter(c => !c.probe && c.state === st).map(who);
+  const label = (list, word) => list.length <= 3 ? list.join(' · ') : `${list.length} ${word}`;
+  const running = names('running'), waiting = names('waiting');
+  if (running.length) chips.push(`<span class="chip"><span class="dot g"></span>${esc(label(running, '进行中'))}</span>`);
+  if (waiting.length) chips.push(`<span class="chip" style="color:var(--orange)"><span class="dot o"></span>${esc(label(waiting, '待批准'))} 待批准</span>`);
+  if (bad) chips.push(`<span class="chip" style="color:var(--red)"><span class="dot r"></span>${bad} 异常</span>`);
+  $('#c-chips').innerHTML = chips.join('') || '<span class="idle">空闲</span>';
+  $('#c-spend').textContent = usd(d.api.today);
+}
+
+function quotaLine(side, name, w) {
+  let note = '暂无数据';
+  if (w) note = w.resets_at ? span(w.resets_at - now()) + '后重置' : (w.sampled ? ago(w.sampled) + '采样' : '');
+  return `<div class="line num" style="color:${tone(w?.left)}">${halfIcon(side)}<span style="color:var(--t2)">${name}</span>
+    <b>${pct(w)}</b><em>${note}</em></div>`;
+}
+function quotaTile(name, info, letter) {
+  const q = quota(info);
+  const plan = info?.plan ? ' · ' + String(info.plan).replace(/^./, ch => ch.toUpperCase()) : '';
+  return `<div class="tile">${splitRing(q, letter, 46)}<div style="min-width:0">
+    <div class="tile-k">${name}${esc(plan)}</div>${quotaLine('left', '5 小时', q.short)}${quotaLine('right', '本周', q.long)}</div></div>`;
+}
+function apiTile(a) {
+  return `<div class="tile"><div style="min-width:0">
+    <div class="tile-k">Claude API · 今日</div><div class="money num">${usd(a.today)}</div>
+    <div class="line num" style="line-height:1.35">近 7 天<em style="color:var(--t1);font-weight:600">${usd(a.week)}</em></div>
+    <div class="line num" style="line-height:1.35">近 30 天<em style="color:var(--t1);font-weight:600">${usd(a.d30)}</em></div>
+  </div></div>`;
+}
+
+/* Row: [name chip] who · product · model · round / what it is doing / the task  [state, time] */
+function item(c) {
+  const age = c.finished_at ? span(c.finished_at - c.created_at) : span(now() - c.created_at);
+  const head = [NAMES[c.provider] || c.provider, model(c.model), c.round > 1 ? `第 ${c.round} 轮` : null].filter(Boolean).join(' · ');
+  let doing = '', cls = '', side;
+  if (c.state === 'running') {
+    doing = c.activity?.text || '启动中';
+    side = `<span class="is g">进行中</span><div class="ts num">${age}</div>`;
+  } else if (c.state === 'waiting') {
+    const a = c.approvals[0];
+    doing = '等待批准' + (a?.summary ? '：' + a.summary : ''); cls = 'warn';
+    side = `<span class="is o">待批准</span><div class="ts num">${age}</div>`;
+  } else if (BAD.includes(c.state)) {
+    doing = (c.error || '').split('\n')[0] || '执行异常'; cls = 'bad';
+    side = `<span class="is r">${{ failed: '失败', lost: '中断', cancelled: '已取消' }[c.state] || '异常'}</span>`;
+  } else {
+    side = `<span class="is">完成</span><div class="ts num">${c.finished_at ? ago(c.finished_at) : ''}</div>`;
+  }
+  return `<div class="item" data-id="${c.call_id}"><div class="mono">${esc(c.name || MONO[c.provider] || '··')}</div>
+    <div style="min-width:0">
+      <div class="it"><span class="who">${esc(who(c))}</span><span class="head">${esc(head)}</span></div>
+      ${doing ? `<div class="doing ${cls}">${esc(doing)}</div>` : ''}
+      <div class="im">${esc(task(c))}</div>
+    </div><div style="text-align:right">${side}</div></div>`;
+}
+
+function full(d) {
+  $('#tiles').innerHTML = quotaTile('Claude', d.claude, 'C') + quotaTile('Codex', d.codex, 'X') + apiTile(d.api);
+  const calls = d.calls.filter(c => !c.probe);
+  const active = calls.filter(c => c.state === 'running' || c.state === 'waiting');
+  const bad = alerts(calls);
+  const done = calls.filter(c => c.state === 'completed').slice(0, 4);
+  const keep = $('#lists').scrollTop;
+  const sec = (name, list, empty, action) => `<div class="sec"><div class="sec-h"><span>${name}</span>
+    ${action || `<span class="num">${list.length || ''}</span>`}</div>
+    ${list.length ? list.map(item).join('') : `<div class="empty">${empty}</div>`}</div>`;
+  $('#lists').innerHTML = sec('进行中', active, '没有正在执行的副 agent')
+    + (bad.length ? sec(`需要关注 · ${bad.length}`, bad.slice(0, 5), '', '<button class="link" id="dismiss">忽略</button>') : '')
+    + sec('最近完成', done, '还没有完成的派活');
+  $('#lists').scrollTop = keep;
+  $('#updated').textContent = '更新于 ' + new Date(d.generated_at * 1000).toTimeString().slice(0, 8);
+}
+
+function toast(c) {
+  const ok = c.state === 'completed';
+  $('#c-toast').innerHTML = `<span class="mark" style="background:${ok ? 'var(--green)' : 'var(--red)'}">${ok ? '✓' : '!'}</span>
+    <span>${esc(who(c))} ${ok ? '完成' : '失败'}</span>
+    <span style="color:var(--t2);font-weight:500;max-width:280px;overflow:hidden;text-overflow:ellipsis">${esc(task(c))}</span>`;
+  S.toastUntil = Date.now() + 5000;
+  island.classList.add('toasting');
+  layout();
+  setTimeout(() => { if (Date.now() >= S.toastUntil) { island.classList.remove('toasting'); layout(); } }, 5100);
+}
+
+function detectFinished(d) {
+  for (const c of d.calls) {
+    const before = S.prev.get(c.call_id);
+    if ((before === 'running' || before === 'waiting') && c.state !== 'running' && c.state !== 'waiting' && !c.probe) toast(c);
+    S.prev.set(c.call_id, c.state);
+  }
+}
+
+/* Size: compact width follows its content; open size is fixed width, height fits content. */
+function layout() {
+  const content = island.classList.contains('toasting') ? $('#c-toast') : island.querySelector('.normal');
+  const prev = content.style.width;
+  content.style.width = 'max-content';
+  S.compactW = Math.min(OPEN_W, Math.ceil(content.scrollWidth) + 26);
+  content.style.width = prev;
+  S.openH = Math.min(innerHeight - 20, Math.max(260, $('#tiles').offsetHeight + $('#lists').scrollHeight + 130));
+  island.style.width = (S.open ? OPEN_W : S.compactW) + 'px';
+  island.style.height = (S.open ? S.openH : COMPACT_H) + 'px';
+  report();
+  trackHit();
+}
+
+/* Hover zone for the host: where the island will be once it settles, plus slack for the pointer. */
+function report() {
+  const w = S.open ? OPEN_W : S.compactW, h = S.open ? S.openH : COMPACT_H, pad = S.open ? 10 : 4;
+  api()?.report((innerWidth - w) / 2 - pad, 0, w + pad * 2, TOP + h + pad, innerWidth);
+}
+
+/* Current island outline for the host, sent every frame while it animates (it becomes the window shape on hover). */
+let hitUntil = 0, lastHit = '';
+function sendHit() {
+  const b = island.getBoundingClientRect();
+  const r = Math.min(parseFloat(getComputedStyle(island).borderTopLeftRadius) || 0, b.height / 2);
+  const key = [b.left, b.width, b.height, r].map(Math.round).join();
+  if (key !== lastHit) { lastHit = key; api()?.hit(b.left, b.top, b.width, b.height, r, innerWidth); }
+  if (performance.now() < hitUntil) requestAnimationFrame(sendHit);
+}
+function trackHit() {
+  const running = performance.now() < hitUntil;
+  hitUntil = performance.now() + 700;
+  if (!running) requestAnimationFrame(sendHit);
+}
+
+window.islandSetOpen = open => {
+  if (open === S.open) return;
+  S.open = open;
+  island.classList.toggle('open', open);
+  island.classList.toggle('closing', !open);
+  layout();
+};
+
+function render() {
+  if (!S.data) return;
+  compact(S.data);
+  full(S.data);
+  layout();
+}
+
+async function load() {
+  try {
+    const r = await fetch('/api/data', { cache: 'no-store' });
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    const first = !S.data;
+    S.data = d;
+    if (first) d.calls.forEach(c => S.prev.set(c.call_id, c.state)); else detectFinished(d);
+    render();
+  } catch (e) {
+    $('#c-chips').innerHTML = '<span class="idle">数据读取失败</span>';
+    layout();
+  }
+}
+
+/* Drag anywhere on the island except controls; a short move threshold keeps clicks working. */
+let press = null;
+island.addEventListener('mousedown', e => {
+  if (e.button !== 0 || e.target.closest('button, .item, .lists')) return;
+  press = { x: e.screenX, y: e.screenY };
+});
+addEventListener('mousemove', e => {
+  if (!press || !(e.buttons & 1)) { press = null; return; }
+  if (Math.hypot(e.screenX - press.x, e.screenY - press.y) > 3) {
+    press = null;
+    api()?.start_drag();
+  }
+});
+addEventListener('mouseup', () => { press = null; });
+island.addEventListener('dblclick', e => {
+  if (!e.target.closest('button, .item, .lists')) api()?.reset_position();
+});
+$('#dash').addEventListener('click', () => api()?.open_dashboard());
+$('#quit').addEventListener('click', () => api()?.quit());
+$('#lists').addEventListener('click', async e => {
+  if (e.target.closest('#dismiss')) {
+    const ids = alerts(S.data.calls).map(c => c.call_id);
+    ids.forEach(id => S.dismissed.add(id));
+    render();
+    await api()?.dismiss(ids);
+  } else if (e.target.closest('.item')) api()?.open_dashboard();
+});
+window.addEventListener('pywebviewready', async () => {
+  (await api().dismissed() || []).forEach(id => S.dismissed.add(id));
+  lastHit = '';
+  render();
+  layout();
+});
+setInterval(() => { if (S.open && S.data) full(S.data); }, 1000);
+load();
+setInterval(load, 3000);
+</script>
+</body>
+</html>

@@ -1,0 +1,415 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent 仪表盘</title>
+<style>
+:root {
+  --bg:#f5f5f7; --surface:#ffffff; --hover:#fbfbfd;
+  --text:#1d1d1f; --text-body:#424245; --text-2:#6e6e73; --text-3:#86868b; --text-4:#aeaeb2; --faint:#d2d2d7;
+  --hairline:rgba(0,0,0,0.07);
+  --accent:#0071e3; --accent-link:#0066cc; --heat:#ff6b00; --heat-bg:rgba(255,107,0,0.1); --live:#30d158;
+  --font:-apple-system,BlinkMacSystemFont,'SF Pro Text','SF Pro Display','Helvetica Neue','PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif;
+  --mono:ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+  --r-pill:999px; --r-chip:6px; --r-thumb:12px; --r-card:18px; --r-panel:22px;
+  --sh-card:0 1px 2px rgba(0,0,0,0.04),0 8px 24px rgba(0,0,0,0.05);
+  --sh-panel:0 1px 3px rgba(0,0,0,0.05),0 14px 40px rgba(0,0,0,0.05);
+  --sh-lift:0 12px 32px rgba(0,0,0,0.1);
+  --track:#e8e8ed;
+  --max-grid:1080px; --pad-x:22px;
+  --ease-out-quart:cubic-bezier(0.25,1,0.5,1);
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{font-optical-sizing:auto}
+body{background:var(--bg);color:var(--text);font-family:var(--font);-webkit-font-smoothing:antialiased;line-height:1.6}
+.num{font-variant-numeric:tabular-nums}
+.wrap{max-width:var(--max-grid);margin:0 auto;padding:0 var(--pad-x)}
+
+/* nav */
+.nav{position:sticky;top:0;z-index:50;background:rgba(245,245,247,0.72);
+  backdrop-filter:saturate(180%) blur(20px);-webkit-backdrop-filter:saturate(180%) blur(20px);
+  border-bottom:1px solid transparent;transition:border-color .3s,box-shadow .3s}
+.nav.scrolled{border-bottom-color:var(--hairline);box-shadow:0 1px 12px rgba(0,0,0,0.04)}
+.nav .wrap{height:54px;display:flex;align-items:center;justify-content:space-between;gap:16px}
+.brand{font-size:15px;font-weight:650;letter-spacing:-0.01em}
+.nav-right{display:flex;align-items:center;gap:12px;font-size:12.5px;color:var(--text-3)}
+.pill-btn{display:inline-flex;align-items:center;height:32px;padding:0 14px;border:none;cursor:pointer;
+  border-radius:var(--r-pill);background:rgba(0,0,0,0.05);color:var(--text);font:inherit;font-size:13px;font-weight:550;
+  transition:background .2s var(--ease-out-quart),transform .1s}
+.pill-btn:hover{background:rgba(0,0,0,0.08)}
+.pill-btn:active{transform:scale(0.97)}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--live);flex:none;animation:pulse-dot 2.2s infinite}
+@keyframes pulse-dot{0%{box-shadow:0 0 0 0 rgba(48,209,88,0.5)}70%{box-shadow:0 0 0 7px rgba(48,209,88,0)}100%{box-shadow:0 0 0 0 rgba(48,209,88,0)}}
+
+/* hero */
+.hero{padding:clamp(36px,6vw,64px) 0 clamp(8px,2vw,16px)}
+.eyebrow{display:flex;align-items:center;gap:9px;font-size:12px;font-weight:600;letter-spacing:0.14em;color:var(--text-3)}
+h1{margin-top:15px;font-size:clamp(32px,6vw,52px);font-weight:700;letter-spacing:-0.03em;line-height:1.06}
+.lede{margin-top:16px;font-size:clamp(15px,2.5vw,18px);color:var(--text-2);line-height:1.6}
+.lede b{color:var(--text);font-weight:600}
+
+/* sections */
+section.block{margin-top:clamp(34px,6vw,56px)}
+.block-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:16px}
+h2{font-size:clamp(20px,3.4vw,26px);font-weight:700;letter-spacing:-0.02em;line-height:1.25}
+.sub{margin-top:4px;font-size:13.5px;color:var(--text-3)}
+
+/* quota cards */
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(300px,100%),1fr));gap:14px}
+.card{background:var(--surface);border-radius:var(--r-card);box-shadow:var(--sh-card);padding:22px 22px 18px;
+  display:flex;flex-direction:column;transition:transform .2s var(--ease-out-quart),box-shadow .2s var(--ease-out-quart)}
+.card:hover{transform:translateY(-3px);box-shadow:var(--sh-lift)}
+.card-top{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.card-name{font-size:17px;font-weight:600;letter-spacing:-0.01em}
+.role{font-size:12.5px;color:var(--text-3);margin-top:1px}
+.tag{font-size:11.5px;color:var(--text-2);background:rgba(0,0,0,0.05);padding:3px 10px;border-radius:var(--r-pill);white-space:nowrap}
+.big{margin-top:22px;font-size:44px;font-weight:700;letter-spacing:-0.035em;line-height:1}
+.big small{font-size:17px;font-weight:600;letter-spacing:-0.01em;color:var(--text-3);margin-left:4px}
+.big.muted{color:var(--faint)}
+.caption{margin-top:8px;font-size:13px;color:var(--text-2)}
+.meters{margin-top:20px;display:flex;flex-direction:column;gap:14px}
+.meter-row{display:flex;justify-content:space-between;font-size:13px;color:var(--text-2)}
+.meter-row span:last-child{color:var(--text);font-weight:550}
+.track{margin-top:6px;height:6px;border-radius:var(--r-pill);background:var(--track);overflow:hidden}
+.fill{height:100%;border-radius:var(--r-pill);background:var(--accent);transition:width .6s var(--ease-out-quart)}
+.fill.hot{background:var(--heat)}
+.meter-note{margin-top:5px;font-size:12px;color:var(--text-3)}
+.card-foot{margin-top:auto;padding-top:16px}
+.card-foot-inner{border-top:1px solid var(--hairline);padding-top:12px;font-size:12px;color:var(--text-3);display:flex;justify-content:space-between;gap:10px}
+.kv{margin-top:18px}
+.kv-row{display:flex;justify-content:space-between;font-size:13.5px;padding:9px 0;color:var(--text-2)}
+.kv-row + .kv-row{border-top:1px solid var(--hairline)}
+.kv-row span:last-child{color:var(--text);font-weight:550}
+.bars{margin-top:18px;display:flex;align-items:flex-end;gap:4px;height:44px}
+.bar{flex:1;background:var(--faint);border-radius:3px 3px 1px 1px;min-height:2px;transition:height .6s var(--ease-out-quart)}
+.bar.today{background:var(--accent)}
+.bars-cap{display:flex;justify-content:space-between;font-size:11px;color:var(--text-4);margin-top:5px}
+
+/* segmented */
+.seg{display:inline-flex;max-width:100%;overflow-x:auto;scrollbar-width:none;background:rgba(0,0,0,0.05);border-radius:var(--r-pill);padding:3px;gap:2px}
+.seg button{flex:none}
+.seg button{border:none;cursor:pointer;font:inherit;font-size:13px;font-weight:500;padding:7px 15px;min-height:32px;
+  border-radius:var(--r-pill);background:transparent;color:var(--text-2);transition:all .25s cubic-bezier(.25,.1,.25,1)}
+.seg button.active{background:var(--surface);color:var(--text);font-weight:600;box-shadow:0 1px 3px rgba(0,0,0,0.12)}
+
+/* unified panel */
+.group-label{font-size:13px;font-weight:600;color:var(--text-3);margin:22px 0 10px 4px}
+.group-label:first-child{margin-top:0}
+.panel{background:var(--surface);border-radius:var(--r-panel);box-shadow:var(--sh-panel);overflow:hidden}
+.row + .row{border-top:1px solid var(--hairline)}
+.row-main{display:grid;grid-template-columns:34px minmax(0,1fr) auto 14px;align-items:center;gap:14px;
+  padding:15px clamp(17px,3vw,24px);cursor:pointer;transition:background .15s;min-height:64px}
+.row-main:hover{background:var(--hover)}
+.mono{width:34px;height:34px;border-radius:var(--r-thumb);background:rgba(0,0,0,0.05);display:grid;place-items:center;
+  font-family:var(--mono);font-size:11px;font-weight:700;color:var(--text-2);letter-spacing:0.02em}
+.row-title{font-size:15.5px;font-weight:600;letter-spacing:-0.01em;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row-meta{margin-top:2px;font-size:12.5px;color:var(--text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row-side{text-align:right;font-size:12.5px;color:var(--text-3);white-space:nowrap}
+.state{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:550;color:var(--text-2)}
+.state.bad{color:var(--heat)}
+.chev{width:14px;height:14px;color:var(--faint);transition:transform .25s var(--ease-out-quart)}
+.row.open .chev{transform:rotate(90deg)}
+.detail{display:none;padding:0 clamp(17px,3vw,24px) 20px calc(clamp(17px,3vw,24px) + 48px)}
+.row.open .detail{display:block}
+.detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.detail-box{background:var(--hover);border-radius:var(--r-thumb);padding:14px 16px;min-width:0}
+.detail-box h4{font-size:12px;font-weight:600;letter-spacing:0.06em;color:var(--text-3);margin-bottom:8px}
+.detail-box pre{font-family:var(--font);font-size:13.5px;line-height:1.7;color:var(--text-body);white-space:pre-wrap;word-break:break-word;max-height:340px;overflow:auto}
+.detail-meta{margin-top:12px;font-family:var(--mono);font-size:11.5px;color:var(--text-3);display:flex;flex-wrap:wrap;gap:4px 18px}
+.err{color:var(--heat)}
+.empty{padding:34px 24px;text-align:center;font-size:14px;color:var(--text-3)}
+.note{margin-top:12px;font-size:12.5px;color:var(--text-3);padding-left:4px}
+
+footer{margin:clamp(48px,8vw,80px) 0 40px;font-size:12px;color:var(--text-3);line-height:1.8}
+
+@media (max-width:680px){
+  .hide-sm{display:none}
+  .detail{padding-left:clamp(17px,3vw,24px)}
+  .detail-grid{grid-template-columns:1fr}
+  .row-main{grid-template-columns:34px minmax(0,1fr) auto}
+  .chev{display:none}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<header class="nav" id="nav">
+  <div class="wrap">
+    <div class="brand">Agent 仪表盘</div>
+    <div class="nav-right">
+      <span class="hide-sm num" id="updated">正在读取…</span>
+      <button class="pill-btn" id="refresh">刷新</button>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="hero">
+    <div class="eyebrow"><span class="dot"></span>AUTOSWARM · 实时</div>
+    <h1>协作总览</h1>
+    <p class="lede num" id="lede">&nbsp;</p>
+  </section>
+
+  <section class="block">
+    <div class="block-head">
+      <div><h2>额度与花费</h2><p class="sub">订阅看剩余额度，API 看实际花费</p></div>
+    </div>
+    <div class="cards" id="cards"></div>
+  </section>
+
+  <section class="block">
+    <div class="block-head">
+      <div><h2>派活记录</h2><p class="sub">主 agent 通过 AutoSwarm 分派的每一次任务，点开看详情</p></div>
+      <div class="seg" id="seg">
+        <button data-f="all" class="active">全部</button>
+        <button data-f="codex">Codex</button>
+        <button data-f="opencode">OpenCode</button>
+        <button data-f="running">进行中</button>
+        <button data-f="bad">异常</button>
+      </div>
+    </div>
+    <div id="calls"></div>
+  </section>
+
+  <section class="block">
+    <div class="block-head">
+      <div><h2>主 agent 会话</h2><p class="sub">Claude Code 近 7 天的会话，token 含缓存读写</p></div>
+    </div>
+    <div id="sessions"></div>
+  </section>
+
+  <footer>
+    数据来源：AutoSwarm 派活记录、Codex 本地会话、Claude Code 会话与状态栏、OpenCode 数据库。<br>
+    仪表盘只读取，不修改任何 agent 的数据。每 15 秒自动刷新。
+  </footer>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+const state = { data: null, filter: 'all', open: new Set() };
+const NAMES = { codex: 'Codex', opencode: 'OpenCode', 'claude-code': 'Claude Code' };
+const MONO = { codex: 'CX', opencode: 'OC', 'claude-code': 'CC' };
+const PLAN = { pro: 'Pro 订阅', max: 'Max 订阅', plus: 'Plus 订阅', team: 'Team', free: '免费版' };
+const CHEV = '<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>';
+
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const usd = v => v == null ? '—' : '$' + (v >= 100 ? v.toFixed(0) : v.toFixed(2));
+function tokens(n) {
+  if (n == null) return '—';
+  if (n < 1e4) return String(n);
+  if (n < 1e8) return (n / 1e4).toFixed(n < 1e5 ? 1 : 0) + ' 万';
+  return (n / 1e8).toFixed(2) + ' 亿';
+}
+function model(m) {
+  if (!m) return null;
+  m = m.replace(/^anthropic\//, '');
+  const x = m.match(/^claude-(opus|sonnet|haiku|fable)-(\d+)(?:-(\d+))?/);
+  return x ? x[1][0].toUpperCase() + x[1].slice(1) + ' ' + x[2] + (x[3] ? '.' + x[3] : '') : m;
+}
+const base = p => p ? p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() : '';
+function clock(ts) { const d = new Date(ts * 1000); return d.toTimeString().slice(0, 5); }
+function dayLabel(ts) {
+  const d = new Date(ts * 1000), t = new Date();
+  const k = x => x.toDateString();
+  if (k(d) === k(t)) return '今天';
+  t.setDate(t.getDate() - 1);
+  if (k(d) === k(t)) return '昨天';
+  return `${d.getMonth() + 1} 月 ${d.getDate()} 日`;
+}
+function span(sec) {
+  sec = Math.max(0, Math.round(sec));
+  const d = Math.floor(sec / 86400), h = Math.floor(sec % 86400 / 3600), m = Math.floor(sec % 3600 / 60);
+  if (d) return `${d} 天 ${h} 小时`;
+  if (h) return `${h} 小时 ${m} 分`;
+  if (m) return `${m} 分 ${sec % 60} 秒`;
+  return `${sec} 秒`;
+}
+function ago(ts) {
+  const s = Date.now() / 1000 - ts;
+  if (s < 60) return '刚刚';
+  if (s < 3600) return Math.floor(s / 60) + ' 分钟前';
+  if (s < 86400) return Math.floor(s / 3600) + ' 小时前';
+  return Math.floor(s / 86400) + ' 天前';
+}
+const windowName = w => w.key === 'five_hour' || w.window_minutes === 300 ? '5 小时' : (w.key === 'seven_day' || w.window_minutes === 10080 ? '本周' : span(w.window_minutes * 60));
+
+function meters(windows, capturedAt) {
+  const now = Date.now() / 1000;
+  return windows.map(w => {
+    const expired = w.resets_at && w.resets_at < now;
+    const used = expired ? 0 : Math.max(0, Math.min(100, w.used ?? 0));
+    const note = expired ? '已重置' : (w.resets_at ? span(w.resets_at - now) + '后重置' : (capturedAt ? ago(capturedAt) + '的采样' : ''));
+    return `<div>
+      <div class="meter-row"><span>${windowName(w)}</span><span class="num">剩余 ${Math.round(100 - used)}%</span></div>
+      <div class="track"><div class="fill ${used >= 80 ? 'hot' : ''}" style="width:${used}%"></div></div>
+      <div class="meter-note num">已用 ${used.toFixed(0)}% · ${note}</div></div>`;
+  }).join('');
+}
+function headline(windows) {
+  const now = Date.now() / 1000;
+  const live = windows.filter(w => !(w.resets_at && w.resets_at < now) && w.used != null);
+  if (!live.length) return { value: 100, label: '额度充足' };
+  const worst = live.reduce((a, b) => (b.used > a.used ? b : a));
+  return { value: Math.round(100 - worst.used), label: `剩余额度，按最紧的「${windowName(worst)}」窗口计` };
+}
+
+function subscriptionCard(name, role, plan, info, extra, emptyHint) {
+  const t = Date.now() / 1000;
+  const windows = (info?.windows || []).filter(w => {
+    const len = w.window_minutes ? w.window_minutes * 60 : (w.key === 'five_hour' ? 18000 : 604800);
+    return w.resets_at || !info.captured_at || t - info.captured_at < len;
+  });
+  let body;
+  if (windows.length) {
+    const h = headline(windows);
+    body = `<div class="big num">${h.value}<small>%</small></div><div class="caption">${h.label}</div>
+      <div class="meters">${meters(windows, info.captured_at)}</div>`;
+  } else {
+    body = `<div class="big muted">—</div><div class="caption">${emptyHint}</div>`;
+  }
+  const foot = info?.captured_at ? `更新于 ${ago(info.captured_at)}` : '暂无额度数据';
+  return `<div class="card">
+    <div class="card-top"><div><div class="card-name">${name}</div><div class="role">${role}</div></div>
+      ${plan ? `<span class="tag">${esc(PLAN[plan] || plan.replace(/^max/, 'Max') + ' 订阅')}</span>` : ''}</div>
+    ${body}${extra || ''}
+    <div class="card-foot"><div class="card-foot-inner"><span>${foot}</span></div></div></div>`;
+}
+
+function apiCard(api) {
+  const max = Math.max(...api.daily.map(d => d.cost), 0.01);
+  const bars = api.daily.map((d, i) => `<div class="bar ${i === api.daily.length - 1 ? 'today' : ''}" title="${d.day} ${usd(d.cost)}" style="height:${Math.max(4, d.cost / max * 100)}%"></div>`).join('');
+  const sources = api.sources.map(s => `${esc(s.label)} <span class="num">${usd(s.today)}</span>`).join(' · ');
+  return `<div class="card">
+    <div class="card-top"><div><div class="card-name">Claude API</div><div class="role">OpenCode 副 agent 与桌面端</div></div><span class="tag">按量计费</span></div>
+    <div class="big num">${usd(api.today)}</div><div class="caption">今天已花费</div>
+    <div class="kv">
+      <div class="kv-row"><span>近 7 天</span><span class="num">${usd(api.week)}</span></div>
+      <div class="kv-row"><span>近 30 天</span><span class="num">${usd(api.d30)}</span></div>
+      <div class="kv-row"><span>本月（自然月）</span><span class="num">${usd(api.month)}</span></div>
+    </div>
+    <div class="bars">${bars}</div>
+    <div class="bars-cap"><span>14 天前</span><span>今天</span></div>
+    <div class="card-foot"><div class="card-foot-inner"><span>${sources ? '今日 · ' + sources : '暂无 API 用量'}</span></div></div></div>`;
+}
+
+function renderCards(d) {
+  const c = d.claude;
+  const claudeExtra = `<div class="kv"><div class="kv-row"><span>今日 token</span><span class="num">${tokens(c.tokens_today)}</span></div>
+    <div class="kv-row"><span>近 7 天 token</span><span class="num">${tokens(c.tokens_week)}</span></div></div>`;
+  $('#cards').innerHTML =
+    subscriptionCard('Claude', '主 agent · 桌面端', c.plan, c, claudeExtra, '在 Claude 桌面端打开 设置 → 用量，额度会同步过来') +
+    subscriptionCard('Codex', '副 agent · 小活', d.codex?.plan, d.codex, '', '用一次 Codex 后显示') +
+    apiCard(d.api);
+}
+
+function stateBadge(c) {
+  if (c.state === 'running') return '<span class="state"><span class="dot"></span>进行中</span>';
+  if (c.state === 'waiting') return '<span class="state bad">待批准</span>';
+  if (c.state === 'completed') return '<span class="state">完成</span>';
+  if (c.state === 'queued') return '<span class="state">排队</span>';
+  const map = { failed: '失败', lost: '中断', cancelled: '已取消' };
+  if (c.superseded) return `<span class="state">${map[c.state] || esc(c.state)} · 已重派</span>`;
+  return `<span class="state bad">${map[c.state] || esc(c.state)}</span>`;
+}
+function callRow(c) {
+  const title = (c.state === 'running' && c.activity ? c.activity.text + ' — ' : '') + (c.prompt.split('\n').find(l => l.trim()) || '（空任务）').trim();
+  const dur = c.finished_at ? span(c.finished_at - c.created_at) : (c.state === 'running' ? '已运行 ' + span(Date.now() / 1000 - c.created_at) : null);
+  const u = c.usage;
+  const meta = [c.name, NAMES[c.provider] || c.provider, model(c.model) || '默认模型', c.effort ? '思考 ' + c.effort : null,
+    c.round > 1 ? `第 ${c.round} 轮` : null, base(c.workspace), dur,
+    u?.tokens ? '会话 ' + tokens(u.tokens) + ' token' : null, u?.cost != null ? usd(u.cost) : null].filter(Boolean).join(' · ');
+  const open = state.open.has(c.call_id) ? 'open' : '';
+  const result = c.error ? `<span class="err">${esc(c.error)}</span>\n\n${esc(c.content)}` : esc(c.content || (c.state === 'running' ? '还在执行…' : '（没有返回内容）'));
+  return `<div class="row ${open}" data-id="${c.call_id}">
+    <div class="row-main">
+      <div class="mono">${MONO[c.provider] || '··'}</div>
+      <div style="min-width:0"><div class="row-title">${esc(title)}</div><div class="row-meta num">${esc(meta)}</div></div>
+      <div class="row-side">${stateBadge(c)}<div class="num">${c.created_at ? clock(c.created_at) : ''}</div></div>
+      ${CHEV}
+    </div>
+    <div class="detail">
+      <div class="detail-grid">
+        <div class="detail-box"><h4>任务</h4><pre>${esc(c.prompt)}</pre></div>
+        <div class="detail-box"><h4>结果</h4><pre>${result}</pre></div>
+      </div>
+      <div class="detail-meta"><span>${esc(c.call_id)}</span>${c.session ? `<span>会话 ${esc(c.session)}</span>` : ''}<span>${esc(c.workspace || '')}</span></div>
+    </div></div>`;
+}
+function renderCalls(d) {
+  const all = d.calls.filter(c => !c.probe);
+  const hidden = d.calls.length - all.length;
+  const f = state.filter;
+  const list = all.filter(c => f === 'all' || c.provider === f || (f === 'running' && ['running', 'waiting'].includes(c.state))
+    || (f === 'bad' && ['failed', 'lost', 'cancelled', 'unknown', 'waiting'].includes(c.state)));
+  if (!list.length) {
+    $('#calls').innerHTML = `<div class="panel"><div class="empty">${all.length ? '没有符合条件的记录' : '还没有派活记录。让主 agent 用一次 autoswarm 就会出现在这里'}</div></div>`;
+    return;
+  }
+  const groups = [];
+  for (const c of list) {
+    const label = c.created_at ? dayLabel(c.created_at) : '未知时间';
+    if (!groups.length || groups[groups.length - 1].label !== label) groups.push({ label, items: [] });
+    groups[groups.length - 1].items.push(c);
+  }
+  $('#calls').innerHTML = groups.map(g => `<div class="group-label">${g.label}</div><div class="panel">${g.items.map(callRow).join('')}</div>`).join('')
+    + (hidden ? `<p class="note">已隐藏 ${hidden} 条安装时的连通性自检</p>` : '');
+}
+function renderSessions(d) {
+  const s = d.claude.sessions;
+  if (!s.length) {
+    $('#sessions').innerHTML = `<div class="panel"><div class="empty">${d.claude.ready ? '近 7 天没有 Claude Code 会话' : '正在统计会话记录，首次大约需要一分钟…'}</div></div>`;
+    return;
+  }
+  $('#sessions').innerHTML = `<div class="panel">${s.map(x => `<div class="row"><div class="row-main" style="cursor:default;grid-template-columns:34px minmax(0,1fr) auto">
+    <div class="mono">CC</div>
+    <div style="min-width:0"><div class="row-title">${esc(x.title || '未命名会话')}</div>
+      <div class="row-meta">${esc([base(x.cwd), model(x.model), ago(x.last_ts)].filter(Boolean).join(' · '))}</div></div>
+    <div class="row-side num"><div style="color:var(--text);font-weight:550">今日 ${tokens(x.today)}</div><div>累计 ${tokens(x.tokens)}</div></div>
+  </div></div>`).join('')}</div>`;
+}
+
+function render() {
+  const d = state.data;
+  if (!d) return;
+  const s = d.summary;
+  $('#lede').innerHTML = `今天派活 <b>${s.calls_today}</b> 次 · 进行中 <b>${s.running}</b>${s.failed ? ` · 异常 <b style="color:var(--heat)">${s.failed}</b>` : ''} · Claude API 今日 <b>${usd(d.api.today)}</b>`;
+  renderCards(d);
+  renderCalls(d);
+  renderSessions(d);
+  $('#updated').textContent = '更新于 ' + clock(d.generated_at);
+}
+
+async function load() {
+  try {
+    const r = await fetch('/api/data', { cache: 'no-store' });
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    state.data = d;
+    render();
+  } catch (e) {
+    $('#updated').textContent = '读取失败：' + e.message;
+  }
+}
+
+$('#seg').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  $('#seg').querySelectorAll('button').forEach(x => x.classList.toggle('active', x === b));
+  state.filter = b.dataset.f;
+  render();
+});
+$('#calls').addEventListener('click', e => {
+  const main = e.target.closest('.row-main'); if (!main) return;
+  const row = main.parentElement, id = row.dataset.id;
+  state.open.has(id) ? state.open.delete(id) : state.open.add(id);
+  row.classList.toggle('open');
+});
+$('#refresh').addEventListener('click', load);
+const nav = $('#nav');
+addEventListener('scroll', () => nav.classList.toggle('scrolled', scrollY > 8), { passive: true });
+
+load();
+setInterval(load, 15000);
+</script>
+</body>
+</html>

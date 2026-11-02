@@ -1,0 +1,6 @@
+{
+  "opencode_dbs": [
+    { "label": "OpenCode", "path": "~/.local/share/opencode/opencode.db" },
+    { "label": "AutoSwarm child (OpenCode v1)", "path": "D:/path/to/opencode-v1/home/data/opencode/opencode.db" }
+  ]
+}
