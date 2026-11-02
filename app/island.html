@@ -55,7 +55,7 @@ html,body{background:transparent;overflow:hidden;font-family:var(--font);-webkit
 .full{position:absolute;inset:0;padding:20px 22px 18px;opacity:0;filter:blur(6px);transform:scale(.98);pointer-events:none;
   transition:opacity .2s var(--ease-out-quart),filter .2s,transform .2s;display:flex;flex-direction:column}
 #island.open .full{opacity:1;filter:none;transform:none;pointer-events:auto;transition-delay:.12s}
-.tiles{display:grid;grid-template-columns:1.15fr 1.15fr 0.7fr;gap:12px}
+.tiles{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
 .tile{display:flex;gap:11px;align-items:center;min-width:0}
 .tile-k{font-size:11.5px;color:var(--t3);font-weight:600;letter-spacing:.02em;white-space:nowrap;margin-bottom:3px}
 .line{display:flex;align-items:baseline;gap:5px;white-space:nowrap;font-size:11.5px;color:var(--t2);line-height:1.5}
@@ -211,7 +211,10 @@ function compact(d) {
   if (waiting.length) chips.push(`<span class="chip" style="color:var(--orange)"><span class="dot o"></span>${esc(label(waiting, '待批准'))} 待批准</span>`);
   if (bad) chips.push(`<span class="chip" style="color:var(--red)"><span class="dot r"></span>${bad} 异常</span>`);
   $('#c-chips').innerHTML = chips.join('') || '<span class="idle">空闲</span>';
-  $('#c-spend').textContent = usd(d.api.today);
+  const b = d.api.billing || {};
+  $('#c-spend').innerHTML = b.remaining != null
+    ? `<span style="color:${tone(b.remaining_pct)}">余 ${usd(b.remaining)}</span>`
+    : usd(d.api.today);
 }
 
 function quotaLine(side, name, w) {
@@ -226,11 +229,24 @@ function quotaTile(name, info, letter) {
   return `<div class="tile">${splitRing(q, letter, 46)}<div style="min-width:0">
     <div class="tile-k">${name}${esc(plan)}</div>${quotaLine('left', '5 小时', q.short)}${quotaLine('right', '本周', q.long)}</div></div>`;
 }
+/* Single ring for the API credit: remaining share of everything topped up. */
+function creditRing(pct, size) {
+  const r = 9.5, c = 2 * Math.PI * r, off = pct == null ? c : c * (1 - pct / 100);
+  return `<div class="ring" style="width:${size}px;height:${size}px"><svg viewBox="0 0 24 24" style="transform:rotate(-90deg)">
+    <circle cx="12" cy="12" r="${r}" fill="none" stroke="rgba(255,255,255,.16)" stroke-width="2.8"/>
+    <circle cx="12" cy="12" r="${r}" fill="none" stroke="${tone(pct)}" stroke-width="2.8" stroke-linecap="round"
+      stroke-dasharray="${c}" stroke-dashoffset="${off}"/></svg><b style="font-size:12px">$</b></div>`;
+}
 function apiTile(a) {
-  return `<div class="tile"><div style="min-width:0">
-    <div class="tile-k">Claude API · 今日</div><div class="money num">${usd(a.today)}</div>
-    <div class="line num" style="line-height:1.35">近 7 天<em style="color:var(--t1);font-weight:600">${usd(a.week)}</em></div>
-    <div class="line num" style="line-height:1.35">近 30 天<em style="color:var(--t1);font-weight:600">${usd(a.d30)}</em></div>
+  const b = a.billing || {};
+  const est = b.source !== 'admin';
+  const value = b.remaining != null ? usd(b.remaining) : usd(a.today);
+  const label = b.remaining != null ? `API 余额${b.total ? ' / ' + usd(b.total) : ''}` : 'API 今日';
+  const month = b.month != null ? b.month : a.month;
+  return `<div class="tile">${creditRing(b.remaining_pct, 46)}<div style="min-width:0">
+    <div class="tile-k">${label}</div><div class="money num" style="color:${b.remaining != null ? tone(b.remaining_pct) : 'var(--t1)'}">${value}</div>
+    <div class="line num" style="line-height:1.35">本月<em style="color:var(--t1);font-weight:600">${usd(month)}${b.monthly_limit ? ' / ' + usd(b.monthly_limit) : ''}</em></div>
+    <div class="line num" style="line-height:1.35">${est ? (b.as_of ? '估算 · ' + ago(b.as_of) + '校准' : '本地估算') : 'Anthropic 账单 · ' + ago(b.as_of)}</div>
   </div></div>`;
 }
 

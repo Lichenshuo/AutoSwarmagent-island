@@ -282,8 +282,12 @@ function apiCard(api) {
   const sources = api.sources.map(s => `${esc(s.label)} <span class="num">${usd(s.today)}</span>`).join(' · ');
   return `<div class="card">
     <div class="card-top"><div><div class="card-name">Claude API</div><div class="role">OpenCode 副 agent 与桌面端</div></div><span class="tag">按量计费</span></div>
-    <div class="big num">${usd(api.today)}</div><div class="caption">今天已花费</div>
+    ${api.billing?.remaining != null
+      ? `<div class="big num">${usd(api.billing.remaining)}</div><div class="caption">剩余额度${api.billing.total ? '（共 ' + usd(api.billing.total) + '）' : ''} · ${api.billing.source === 'admin' ? 'Anthropic 账单' : '按上次校准估算'}</div>`
+      : `<div class="big num">${usd(api.today)}</div><div class="caption">今天已花费</div>`}
     <div class="kv">
+      ${api.billing?.month != null ? `<div class="kv-row"><span>本月（UTC，与 Console 一致）</span><span class="num">${usd(api.billing.month)}${api.billing.monthly_limit ? ' / ' + usd(api.billing.monthly_limit) : ''}</span></div>` : ''}
+      <div class="kv-row"><span>今日（UTC）</span><span class="num">${usd(api.today)}</span></div>
       <div class="kv-row"><span>近 7 天</span><span class="num">${usd(api.week)}</span></div>
       <div class="kv-row"><span>近 30 天</span><span class="num">${usd(api.d30)}</span></div>
       <div class="kv-row"><span>本月（自然月）</span><span class="num">${usd(api.month)}</span></div>

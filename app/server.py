@@ -12,7 +12,7 @@ import threading
 import time
 import urllib.request
 import webbrowser
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -395,14 +395,19 @@ def claude_snapshot():
 
 # ── Claude API spend (OpenCode) ──────────────────────────────────────────
 
+def utc_day(ts):
+    """Anthropic bills by UTC day/month, so API spend is bucketed in UTC to match the Console."""
+    return datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%d")
+
+
 def api_snapshot():
     now = time.time()
-    today = local_day(now)
-    week = {local_day(now - i * 86400) for i in range(7)}
-    d30 = {local_day(now - i * 86400) for i in range(30)}
-    month = datetime.now().strftime("%Y-%m")
-    daily = {local_day(now - i * 86400): 0.0 for i in range(14)}
-    sources, sessions = [], {}
+    today = utc_day(now)
+    week = {utc_day(now - i * 86400) for i in range(7)}
+    d30 = {utc_day(now - i * 86400) for i in range(30)}
+    month = today[:7]
+    daily = {utc_day(now - i * 86400): 0.0 for i in range(14)}
+    sources, sessions, events = [], {}, []
     for label, db in opencode_dbs():
         if not db.exists():
             continue
@@ -417,6 +422,7 @@ def api_snapshot():
                     if o.get("role") != "assistant" or o.get("providerID") != "anthropic":
                         continue
                     _add_cost(src, daily, o.get("cost") or 0, created / 1000, today, week, d30, month)
+                    events.append((created / 1000, o.get("cost") or 0))
                 for sid, title, cost, ti, to, tr, tcr, tcw in con.execute(
                         "select id, title, cost, tokens_input, tokens_output, tokens_reasoning, tokens_cache_read, tokens_cache_write from session"):
                     sessions[sid] = {"title": title, "cost": float(cost or 0),
@@ -428,6 +434,7 @@ def api_snapshot():
                     if (o.get("model") or {}).get("providerID") != "anthropic":
                         continue
                     _add_cost(src, daily, o.get("cost") or 0, created / 1000, today, week, d30, month)
+                    events.append((created / 1000, o.get("cost") or 0))
                 for sid, title, cost, ti, to, tcr, tcw in con.execute(
                         "select id, title, cost, tokens_input, tokens_output, tokens_cache_read, tokens_cache_write from session_v2"):
                     sessions[sid] = {"title": title, "cost": float(cost or 0),
@@ -437,12 +444,87 @@ def api_snapshot():
             src["error"] = str(exc)
         sources.append(src)
     total = {k: sum(s[k] for s in sources) for k in ("today", "week", "d30", "month", "total")}
-    return {"sources": sources, **total,
-            "daily": [{"day": d, "cost": round(v, 4)} for d, v in sorted(daily.items())]}, sessions
+    result = {"sources": sources, **total, "estimated": True,
+              "daily": [{"day": d, "cost": round(v, 4)} for d, v in sorted(daily.items())]}
+    billing = billing_snapshot(events)
+    if billing.get("source") == "admin":
+        # Exact figures from Anthropic replace the local estimate.
+        result.update({k: billing[k] for k in ("today", "week", "d30", "month")}, estimated=False,
+                      daily=billing["daily"])
+    result["billing"] = billing
+    return result, sessions
+
+
+# ── Claude API balance: exact via the Admin Cost API, else a calibrated estimate ──
+
+_cost_cache = {"at": 0.0, "days": None, "error": None}
+
+
+def admin_daily_costs(key, since):
+    """Daily USD cost per UTC day from GET /v1/organizations/cost_report (amounts are cents as decimal strings)."""
+    if time.time() - _cost_cache["at"] < 300 and _cost_cache["days"] is not None:
+        return _cost_cache["days"]
+    days, page = {}, None
+    end = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%dT00:00:00Z")
+    try:
+        for _ in range(40):
+            query = f"starting_at={since}T00:00:00Z&ending_at={end}&bucket_width=1d&limit=31" + (f"&page={page}" if page else "")
+            req = urllib.request.Request("https://api.anthropic.com/v1/organizations/cost_report?" + query, headers={
+                "x-api-key": key, "anthropic-version": "2023-06-01", "User-Agent": "agent-island"})
+            with urllib.request.urlopen(req, timeout=15) as response:
+                data = json.loads(response.read())
+            for bucket in data.get("data", []):
+                day = (bucket.get("starting_at") or "")[:10]
+                cents = sum(float(r.get("amount") or 0) for r in bucket.get("results", []))
+                days[day] = days.get(day, 0.0) + cents / 100
+            if not data.get("has_more"):
+                break
+            page = data.get("next_page")
+        _cost_cache.update(at=time.time(), days=days, error=None)
+    except Exception as exc:
+        _cost_cache.update(at=time.time(), error=str(exc))
+    return _cost_cache["days"]
+
+
+def billing_snapshot(events):
+    config = read_json(CONFIG_FILE) or {}
+    credit = config.get("api_credit") or {}
+    limit = config.get("api_monthly_limit")
+    total = credit.get("total")
+    now = time.time()
+    month = utc_day(now)[:7]
+    out = {"total": total, "monthly_limit": limit, "source": None}
+    key = config.get("anthropic_admin_key")
+    if key:
+        days = admin_daily_costs(key, credit.get("since") or "2026-01-01")
+        if days is not None:
+            spent = sum(days.values())
+            out.update(source="admin", spent=spent, as_of=_cost_cache["at"],
+                       remaining=(total - spent) if total is not None else None,
+                       today=days.get(utc_day(now), 0.0),
+                       week=sum(days.get(utc_day(now - i * 86400), 0.0) for i in range(7)),
+                       d30=sum(days.get(utc_day(now - i * 86400), 0.0) for i in range(30)),
+                       month=sum(v for d, v in days.items() if d.startswith(month)),
+                       daily=[{"day": utc_day(now - i * 86400), "cost": round(days.get(utc_day(now - i * 86400), 0.0), 4)}
+                              for i in range(13, -1, -1)])
+        else:
+            out["error"] = _cost_cache["error"]
+    snap = credit.get("snapshot")  # what the Console showed at a known moment
+    if out["source"] is None and snap and snap.get("at"):
+        at = iso_to_ts(snap["at"]) or 0
+        since = sum(cost for ts, cost in events if ts > at)
+        same_month = utc_day(at)[:7] == month
+        out.update(source="estimate", as_of=at,
+                   remaining=snap["balance"] - since if snap.get("balance") is not None else None,
+                   month=(snap.get("month_spend", 0) + since) if same_month else
+                         sum(cost for ts, cost in events if utc_day(ts)[:7] == month))
+    if out.get("remaining") is not None and total:
+        out["remaining_pct"] = max(0.0, min(100.0, out["remaining"] / total * 100))
+    return out
 
 
 def _add_cost(src, daily, cost, ts, today, week, d30, month):
-    day = local_day(ts)
+    day = utc_day(ts)
     src["total"] += cost
     if day == today:
         src["today"] += cost

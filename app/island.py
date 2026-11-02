@@ -14,12 +14,15 @@ The window is a tool window: no taskbar button, no Alt-Tab entry, never takes fo
 """
 import ctypes
 import json
+import subprocess
 import sys
 import threading
 import time
 import traceback
+import urllib.request
 import webbrowser
 from ctypes import wintypes
+from pathlib import Path
 
 import webview
 
@@ -27,6 +30,7 @@ import server
 
 WIN_W, WIN_H = 640, 600          # logical px; pywebview scales to physical itself
 COLLAPSE_DELAY = 0.28            # pointer must stay out this long before collapsing
+STARTUP_TIMEOUT = 20             # seconds a child gets to start answering before it is restarted
 POS_FILE = server.DATA / "island-pos.json"
 DISMISSED_FILE = server.DATA / "island-dismissed.json"
 LOG_FILE = server.DATA / "island.log"
@@ -57,9 +61,12 @@ SWP_NOSIZE, SWP_NOZORDER, SWP_NOACTIVATE = 0x1, 0x4, 0x10
 
 
 def log_error(where):
+    trace = traceback.format_exc()
+    trace = "" if trace.startswith("NoneType") else trace
     try:
+        server.DATA.mkdir(parents=True, exist_ok=True)
         with open(LOG_FILE, "a", encoding="utf-8") as fh:
-            fh.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {where}\n{traceback.format_exc()}\n")
+            fh.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {where}\n{trace}")
     except OSError:
         pass
 
@@ -234,20 +241,78 @@ def _track_pointer(window, api):
                 opened, hot_mode, left_at, last_shape = False, False, None, None
 
 
-def already_running():
-    kernel32.CreateMutexW(None, False, "Local\\AgentIsland")
+def already_running(name):
+    kernel32.CreateMutexW(None, False, "Local\\" + name)
     return ctypes.get_last_error() == 183
 
 
-def main():
-    want_dashboard = "--dashboard" in sys.argv
-    if already_running():
-        if want_dashboard:
+_local = urllib.request.build_opener(urllib.request.ProxyHandler({}))  # never route loopback via a proxy
+
+
+def kill_tree(pid):
+    """A venv's pythonw is a launcher that starts the real interpreter as its child; take both down."""
+    subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True,
+                   creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+
+
+def healthy(timeout=2):
+    try:
+        with _local.open(f"http://127.0.0.1:{server.PORT}/island", timeout=timeout) as response:
+            return response.status == 200
+    except Exception:
+        return False
+
+
+def supervise():
+    """Run the island as a child and keep it alive.
+
+    WinForms occasionally spins forever while sizing a new frameless window (a DPI
+    quirk), and a background widget must survive crashes too. A child that does not
+    answer within STARTUP_TIMEOUT is killed and restarted; a child that exits on its
+    own with code 0 (the user pressed Quit) ends the supervisor.
+    """
+    if already_running("AgentIslandSupervisor"):
+        if "--dashboard" in sys.argv:
             webbrowser.open(f"http://127.0.0.1:{server.PORT}/")
         return
+    log_error("supervisor started")
+    failures, opened = 0, False
+    args = [a for a in sys.argv[1:] if a != "--dashboard"]
+    while failures < 5:
+        child = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "--child", *args],
+                                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        deadline = time.time() + STARTUP_TIMEOUT
+        while time.time() < deadline and child.poll() is None and not healthy():
+            time.sleep(1)
+        if child.poll() is not None:
+            log_error(f"island exited during startup with code {child.returncode}; restarting")
+            failures += 1
+            time.sleep(2)
+            continue
+        if not healthy():
+            log_error(f"island did not start within {STARTUP_TIMEOUT}s; restarting (attempt {failures + 1})")
+            kill_tree(child.pid)
+            failures += 1
+            continue
+        if "--dashboard" in sys.argv and not opened:
+            webbrowser.open(f"http://127.0.0.1:{server.PORT}/")
+            opened = True
+        started = time.time()
+        code = child.wait()
+        if code == 0 and time.time() - started > 5:
+            log_error("island quit by user")
+            return
+        log_error(f"island exited with code {code} after {time.time() - started:.0f}s; restarting")
+        failures = failures + 1 if time.time() - started < 60 else 0
+        time.sleep(2)
+
+
+def main():
+    if "--child" not in sys.argv:
+        supervise()
+        return
+    # The supervisor is the single-instance guard; the child just runs.
     server.start_server()
-    if want_dashboard:
-        threading.Timer(1.0, lambda: webbrowser.open(f"http://127.0.0.1:{server.PORT}/")).start()
     api = Api()
     screen = webview.screens[0]
     window = webview.create_window(
