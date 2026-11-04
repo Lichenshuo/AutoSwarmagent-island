@@ -192,6 +192,8 @@ footer{margin:clamp(48px,8vw,80px) 0 40px;font-size:12px;color:var(--text-3);lin
   </div>
 </header>
 
+<div id="stale" hidden style="background:var(--heat-bg);color:var(--heat);font-size:13.5px;font-weight:550;text-align:center;padding:10px 16px">
+  后台服务还是更新前启动的旧版本，新功能可能用不了。请退出灵动岛后重新打开。</div>
 <main class="wrap">
   <section class="hero">
     <div class="eyebrow"><span class="dot"></span>AUTOSWARM · 实时</div>
@@ -510,6 +512,7 @@ function render() {
   if (!d) return;
   const s = d.summary;
   $('#lede').innerHTML = `今天派活 <b>${s.calls_today}</b> 次 · 进行中 <b>${s.running}</b>${s.failed ? ` · 异常 <b style="color:var(--heat)">${s.failed}</b>` : ''} · Claude API 今日 <b>${usd(d.api.today)}</b>`;
+  $('#stale').hidden = !d.restart_needed;
   const nBad = d.calls.filter(c => !c.probe && (c.state === 'waiting' || needsLook(c))).length;
   $('#bad-n').textContent = nBad ? ' ' + nBad : '';
   renderCards(d);
@@ -551,10 +554,16 @@ $('#overview').addEventListener('click', e => {
   renderOverview(state.data); renderCalls(state.data);
   if (state.agent) $('#calls-block').scrollIntoView({ behavior: 'smooth', block: 'start' });
 });
+async function postJson(url, body) {
+  const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  let res = null;
+  try { res = await r.json(); } catch (e) { /* not JSON */ }
+  if (r.status === 404) throw new Error('后台服务还是旧版本，不认识这个操作。请退出灵动岛后重新打开（或运行更新说明里的重启命令）');
+  if (!r.ok) throw new Error((res && res.error) || ('HTTP ' + r.status));
+  return res;
+}
 async function dismissApi(body) {
-  const r = await fetch('/api/dismiss', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  const res = await r.json();
-  if (!r.ok) throw new Error(res.error || r.status);
+  const res = await postJson('/api/dismiss', body);
   await load();
   return res;
 }
@@ -600,9 +609,7 @@ $('#cal-form').addEventListener('submit', async e => {
   if (body.balance == null || !(body.balance >= 0)) { $('#cal-msg').textContent = '请填写当前余额'; return; }
   $('#cal-save').disabled = true;
   try {
-    const r = await fetch('/api/calibrate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    const res = await r.json();
-    if (!r.ok) throw new Error(res.error || r.status);
+    const res = await postJson('/api/calibrate', body);
     $('#cal-msg').textContent = res.learned != null
       ? `已校准。上次以来实际花了 ${usd(res.real)}，本地只记录到 ${usd(res.local)}，修正系数更新为 ×${res.factor.toFixed(1)}`
       : `已校准${res.note ? '（' + (res.note.startsWith('balance went up') ? '余额变多，按充值处理，系数不变' : '本地记录太少，系数不变') + '）' : ''}`;

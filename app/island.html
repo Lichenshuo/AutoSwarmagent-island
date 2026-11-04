@@ -303,7 +303,7 @@ function full(d) {
     + (bad.length ? sec(`需要关注 · ${bad.length}`, bad.slice(0, 5), '', '<button class="link" id="dismiss">忽略</button>') : '')
     + sec('最近完成', done, '还没有完成的派活');
   $('#lists').scrollTop = keep;
-  $('#updated').textContent = '更新于 ' + new Date(d.generated_at * 1000).toTimeString().slice(0, 8);
+  $('#updated').textContent = '更新于 ' + new Date(d.generated_at * 1000).toTimeString().slice(0, 8) + (d.restart_needed ? ' · 代码已更新，请退出后重开' : '');
 }
 
 function toast(c) {

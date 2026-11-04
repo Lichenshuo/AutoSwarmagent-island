@@ -1336,6 +1336,7 @@ def snapshot():
         "api": api,
         "calls": calls,
         "dismissed": sorted(dismissed),
+        "restart_needed": restart_needed(),
         "delegation": delegation_summary(calls),
         "summary": {
             "calls_today": sum(1 for c in real if c["created_at"] and local_day(c["created_at"]) == today),
@@ -1401,6 +1402,46 @@ class Handler(BaseHTTPRequestHandler):
             self._send(json.dumps({"error": f"bad input: {exc}"}).encode(), "application/json", 400)
         except Exception as exc:
             self._send(json.dumps({"error": str(exc)}).encode(), "application/json", 500)
+
+
+# ── Has the code on disk changed since this process started? ──────────────
+# After `git pull` / an update the page and island.html are read fresh, but this process keeps running
+# the old Python. Tell the pages so they can ask for a restart instead of failing in confusing ways.
+import hashlib
+
+_CODE_FILES = [Path(__file__).resolve(), Path(__file__).resolve().with_name("island.py")]
+
+
+def _code_state():
+    parts = []
+    for f in _CODE_FILES:
+        try:
+            st = f.stat()
+            parts.append((st.st_mtime_ns, st.st_size))
+        except OSError:
+            parts.append(None)
+    return parts
+
+
+def _code_hash():
+    h = hashlib.sha1()
+    for f in _CODE_FILES:
+        try:
+            h.update(f.read_bytes())
+        except OSError:
+            pass
+    return h.hexdigest()
+
+
+_code = {"state": _code_state(), "started": _code_hash(), "now": None}
+_code["now"] = _code["started"]
+
+
+def restart_needed():
+    state = _code_state()
+    if state != _code["state"]:                  # cheap stat check; re-hash only when a file was touched
+        _code.update(state=state, now=_code_hash())
+    return _code["now"] != _code["started"]
 
 
 PORT = 8765
