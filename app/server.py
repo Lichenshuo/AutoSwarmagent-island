@@ -544,7 +544,10 @@ def renew_claude_token(verbose=False):
         return result
     finally:
         if result is not None:
-            _renew_state.update(at=time.time(), ok=result.get("ok"), method=result.get("method"), error=result.get("error"))
+            # "token still valid" = Claude Code decided it is not due yet: look again soon, not after the full retry gap.
+            soon = result.get("note") == "token still valid"
+            _renew_state.update(at=time.time() - (RENEW_RETRY - 180 if soon else 0),
+                                ok=result.get("ok"), method=result.get("method"), error=result.get("error"))
         _renew_lock.release()
 
 
