@@ -335,7 +335,12 @@ def claude_live():
         now = time.time()
         if not _oauth_next[0] and last:  # fresh start: don't re-poll a value that is still recent
             _oauth_next[0] = (last.get("captured_at") or 0) + 120
-        if now >= _oauth_next[0]:
+        try:
+            relogin = _oauth_error["error"] and CLAUDE_CREDENTIALS.stat().st_mtime > _oauth_error["at"]
+        except OSError:
+            relogin = False
+        if now >= _oauth_next[0] or relogin:
+            _oauth_error["at"] = now   # consume the "login changed" signal
             _oauth_next[0] = now + 30  # in flight; the worker sets the real next time
             threading.Thread(target=_refresh_oauth, daemon=True).start()
     return last
@@ -411,6 +416,41 @@ def claude_snapshot():
         "ready": _claude_state["ready"],
         "sessions": sorted(sessions.values(), key=lambda s: s["last_ts"], reverse=True)[:12],
     }
+
+
+def quota_debug():
+    """Print every source of the Claude 5h / weekly numbers side by side. Never prints tokens."""
+    now = time.time()
+    iso = lambda ts: datetime.fromtimestamp(ts, timezone.utc).astimezone().strftime("%m-%d %H:%M:%S") if ts else None
+    creds_raw = read_json(CLAUDE_CREDENTIALS) or {}
+    oauth = creds_raw.get("claudeAiOauth") or {}
+    exp = oauth.get("expiresAt")
+    exp = exp / 1000 if isinstance(exp, (int, float)) and exp > 1e12 else exp
+    out = {"now": iso(now),
+           "login_file": {"path": str(CLAUDE_CREDENTIALS), "exists": CLAUDE_CREDENTIALS.exists(),
+                          "has_token": bool(oauth.get("accessToken")), "token_expires": iso(exp),
+                          "token_expired": bool(exp and exp < now), "plan": oauth.get("subscriptionType")}}
+    live = _oauth_usage()
+    if live and live.get("windows"):
+        out["live_api"] = {w["key"]: {"used_pct": w["used"], "resets_at": iso(w["resets_at"])} for w in live["windows"]}
+        out["live_api_keys"] = live.get("keys")
+    else:
+        out["live_api"] = live
+    cache = read_json(OAUTH_CACHE) or {}
+    out["cache_file"] = {"captured": iso(cache.get("captured_at")), "windows": {w["key"]: {"used_pct": w["used"], "resets_at": iso(w["resets_at"])} for w in cache.get("windows") or []}}
+    if CLAUDE_DESKTOP_DATA:
+        samples = (read_json(CLAUDE_DESKTOP_DATA / "plan-usage-history.json") or {}).get("samples") or []
+        last = sorted(samples, key=lambda s: s.get("t", 0))[-3:]
+        out["desktop_samples_latest3"] = [{"at": iso(s.get("t", 0) / 1000), "five_hour": (s.get("u") or {}).get("fh"), "seven_day": (s.get("u") or {}).get("sd")} for s in last]
+    else:
+        out["desktop_samples_latest3"] = "no Claude-Data folder found"
+    status = read_json(CLAUDE_STATUS)
+    out["statusline"] = ({"captured": iso(status.get("captured_at")), "rate_limits": status.get("rate_limits")} if status else None)
+    picked = claude_quota()
+    out["island_uses"] = {"source": picked.get("source"), "captured": iso(picked.get("captured_at")),
+                          "windows": {w["key"]: {"used_pct": w["used"], "resets_at": iso(w["resets_at"])} for w in picked["windows"]}}
+    print(json.dumps(out, ensure_ascii=False, indent=2))
+    return 0
 
 
 # ── Claude API spend (OpenCode) ──────────────────────────────────────────
@@ -937,7 +977,11 @@ def main():
                         help="record the API balance the Console shows now (USD) and exit")
     parser.add_argument("--month", type=float, help="with --calibrate: this month's spend shown in the Console")
     parser.add_argument("--total", type=float, help="with --calibrate: total credit ever topped up")
+    parser.add_argument("--quota-debug", action="store_true",
+                        help="print where the Claude 5-hour / weekly numbers come from (no secrets) and exit")
     args = parser.parse_args()
+    if args.quota_debug:
+        return quota_debug()
     if args.calibrate is not None:
         print(json.dumps(calibrate(args.calibrate, args.month, args.total), ensure_ascii=False))
         return 0

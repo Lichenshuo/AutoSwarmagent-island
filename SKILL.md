@@ -38,7 +38,7 @@ Fetch `http://127.0.0.1:8765/api/data` (start `island.cmd` first if it is not ru
 ## Quota sources
 
 - **Claude**: best is a signed-in terminal Claude Code (`claude auth login`); the island then reads live usage with reset times. Otherwise it falls back to Claude Desktop's local usage samples, which are only refreshed occasionally, and says how old they are.
-  If the live reading stops (`claude.live_error`: `token_expired` = the terminal login token expired, `no_login`, `rate_limited`), the island falls back to the freshest of Claude Desktop's samples / the statusline snapshot and shows why. The token is only renewed while a terminal Claude Code runs; the island never refreshes it itself. A used-up weekly window means the 5-hour one is shown as blocked too.
+  If the live reading stops (`claude.live_error`: `token_expired` = the terminal login token expired, `no_login`, `rate_limited`), the island falls back to the freshest of Claude Desktop's samples / the statusline snapshot and shows why. `server.py --quota-debug` prints every source side by side (no secrets) when the numbers look wrong. The token is only renewed while a terminal Claude Code runs; the island never refreshes it itself. A used-up weekly window means the 5-hour one is shown as blocked too.
 - **Codex**: read from the latest `rate_limits` in `~/.codex/sessions`, so it updates whenever Codex runs.
 - **API spend**: summed from per-message costs in the OpenCode databases.
 
