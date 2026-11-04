@@ -10,6 +10,7 @@ import sqlite3
 import sys
 import threading
 import time
+import urllib.error
 import urllib.request
 import webbrowser
 from datetime import datetime, timedelta, timezone
@@ -281,15 +282,21 @@ def _oauth_usage():
     creds = (read_json(CLAUDE_CREDENTIALS) or {}).get("claudeAiOauth") or {}
     token = creds.get("accessToken")
     if not token:
-        return None
+        return {"error": "no_login"}
+    expires = creds.get("expiresAt")
+    if isinstance(expires, (int, float)) and expires / (1000 if expires > 1e12 else 1) < time.time() + 30:
+        # Only a running terminal Claude Code renews this token; refreshing it here could log the terminal out.
+        return {"error": "token_expired"}
     req = urllib.request.Request("https://api.anthropic.com/api/oauth/usage", headers={
         "Authorization": "Bearer " + token, "anthropic-beta": "oauth-2025-04-20",
         "Content-Type": "application/json", "User-Agent": "agent-island"})
     try:
         with urllib.request.urlopen(req, timeout=8) as response:
             data = json.loads(response.read())
+    except urllib.error.HTTPError as exc:
+        return {"error": {401: "token_expired", 403: "token_expired", 429: "rate_limited"}.get(exc.code, f"http_{exc.code}")}
     except Exception as exc:
-        return {"error": str(exc)}
+        return {"error": "network: " + str(exc)[:80]}
     windows = []
     for key in ("five_hour", "seven_day"):
         w = data.get(key)
@@ -303,6 +310,9 @@ _oauth_lock = threading.Lock()
 _oauth_next = [0.0]  # earliest time for the next request
 
 
+_oauth_error = {"error": None, "at": 0.0}
+
+
 def _refresh_oauth():
     result = _oauth_usage()
     with _oauth_lock:
@@ -310,8 +320,11 @@ def _refresh_oauth():
             DATA.mkdir(parents=True, exist_ok=True)
             OAUTH_CACHE.write_text(json.dumps(result), encoding="utf-8")
             _oauth_next[0] = time.time() + 120
+            _oauth_error.update(error=None, at=time.time())
         else:
-            _oauth_next[0] = time.time() + (600 if result and "429" in str(result.get("error")) else 120)
+            err = (result or {}).get("error") or "empty"
+            _oauth_error.update(error=err, at=time.time())
+            _oauth_next[0] = time.time() + (600 if err == "rate_limited" else 300 if err in ("token_expired", "no_login") else 120)
 
 
 def claude_live():
@@ -331,9 +344,9 @@ def claude_live():
 def claude_quota():
     """Best Claude subscription usage: live API (terminal login) > Desktop samples / statusLine snapshot."""
     live = claude_live()
-    if live and live.get("windows") and time.time() - (live.get("captured_at") or 0) < 86400:
-        return live
     candidates = []
+    if live and live.get("windows") and time.time() - (live.get("captured_at") or 0) < 86400:
+        candidates.append(live)
     if CLAUDE_DESKTOP_DATA:
         history = read_json(CLAUDE_DESKTOP_DATA / "plan-usage-history.json") or {}
         samples = history.get("samples") or []
@@ -349,7 +362,11 @@ def claude_quota():
                    for key in ("five_hour", "seven_day") if (w := (status.get("rate_limits") or {}).get(key))]
         candidates.append({"captured_at": status.get("captured_at") or 0, "windows": windows, "source": "statusline"})
     candidates = [c for c in candidates if c["windows"]]
-    return max(candidates, key=lambda c: c["captured_at"]) if candidates else {"captured_at": None, "windows": [], "source": None}
+    best = max(candidates, key=lambda c: c["captured_at"] or 0) if candidates else {"captured_at": None, "windows": [], "source": None}
+    best = dict(best)
+    # Tell the UI why the live reading is not being used (expired login, rate limit, ...).
+    best["live_error"] = _oauth_error["error"] if best.get("source") != "oauth" or _oauth_error["error"] else None
+    return best
 
 
 def claude_plan():
@@ -387,6 +404,7 @@ def claude_snapshot():
         "plan": claude_plan(),
         "captured_at": quota["captured_at"],
         "quota_source": quota["source"],
+        "live_error": quota.get("live_error"),
         "windows": quota["windows"],
         "tokens_today": sum(f.get("days", {}).get(today, 0) for f in files),
         "tokens_week": sum(f.get("days", {}).get(d, 0) for f in files for d in week),

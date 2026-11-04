@@ -173,9 +173,15 @@ function quota(info) {
     const len = w.window_minutes ? w.window_minutes * 60 : (w.key === 'five_hour' ? 18000 : 604800);
     if (!w.resets_at && info.captured_at && t - info.captured_at > len) continue;   // too old to mean anything
     const reset = w.resets_at && w.resets_at < t;
+    // A window whose reset time has passed is only *probably* fresh: anything used since then is unknown
+    // unless the reading itself is recent, so flag it instead of claiming an exact 100%.
+    const guess = reset && info.captured_at && t - info.captured_at > 600;
     out[len <= 18000 ? 'short' : 'long'] = { left: reset ? 100 : Math.max(0, Math.round(100 - (w.used ?? 0))),
-      resets_at: reset ? null : w.resets_at, sampled: w.resets_at ? null : info.captured_at };
+      resets_at: reset ? null : w.resets_at, sampled: w.resets_at && !guess ? null : info.captured_at, guess };
   }
+  // With the weekly limit used up nothing can run, whatever the 5-hour window says (or leaves out).
+  if (out.long && out.long.left === 0 && !out.long.guess)
+    out.short = { left: 0, resets_at: out.long.resets_at, sampled: null, blocked: true };
   return out;
 }
 
@@ -219,15 +225,18 @@ function compact(d) {
 
 function quotaLine(side, name, w) {
   let note = '暂无数据';
-  if (w) note = w.resets_at ? span(w.resets_at - now()) + '后重置' : (w.sampled ? ago(w.sampled) + '采样' : '');
+  if (w) note = w.blocked ? '周额度用完 · ' + span(w.resets_at - now()) + '后恢复'
+    : w.resets_at ? span(w.resets_at - now()) + '后重置' : (w.sampled ? ago(w.sampled) + (w.guess ? '读数，已过重置点' : '采样') : '');
   return `<div class="line num" style="color:${tone(w?.left)}">${halfIcon(side)}<span style="color:var(--t2)">${name}</span>
     <b>${pct(w)}</b><em>${note}</em></div>`;
 }
 function quotaTile(name, info, letter) {
   const q = quota(info);
   const plan = info?.plan ? ' · ' + String(info.plan).replace(/^./, ch => ch.toUpperCase()) : '';
+  const why = { token_expired: '终端登录已过期，实时额度停了', no_login: '终端没登录，实时额度读不到', rate_limited: '额度接口被限流，暂用旧数据' }[info?.live_error];
+  const warn = why ? `<div class="num" style="font-size:11px;color:var(--orange);margin-top:2px;white-space:nowrap" title="${esc(info.live_error)}">${why}</div>` : '';
   return `<div class="tile">${splitRing(q, letter, 46)}<div style="min-width:0">
-    <div class="tile-k">${name}${esc(plan)}</div>${quotaLine('left', '5 小时', q.short)}${quotaLine('right', '本周', q.long)}</div></div>`;
+    <div class="tile-k">${name}${esc(plan)}</div>${quotaLine('left', '5 小时', q.short)}${quotaLine('right', '本周', q.long)}${warn}</div></div>`;
 }
 /* Single ring for the API credit: remaining share of everything topped up. */
 function creditRing(pct, size) {

@@ -297,7 +297,8 @@ function subscriptionCard(name, role, plan, info, extra, emptyHint) {
   } else {
     body = `<div class="big muted">—</div><div class="caption">${emptyHint}</div>`;
   }
-  const foot = info?.captured_at ? `更新于 ${ago(info.captured_at)}` : '暂无额度数据';
+  const why = { token_expired: '终端登录已过期：在终端运行 claude auth login，或开一次 claude', no_login: '终端没登录：claude auth login', rate_limited: '额度接口被限流，暂用旧数据' }[info?.live_error];
+  const foot = (info?.captured_at ? `更新于 ${ago(info.captured_at)}` : '暂无额度数据') + (why ? ` · <span style="color:var(--heat)">${why}</span>` : '');
   return `<div class="card">
     <div class="card-top"><div><div class="card-name">${name}</div><div class="role">${role}</div></div>
       ${plan ? `<span class="tag">${esc(PLAN[plan] || plan.replace(/^max/, 'Max') + ' 订阅')}</span>` : ''}</div>
