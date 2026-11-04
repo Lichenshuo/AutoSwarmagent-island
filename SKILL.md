@@ -34,6 +34,9 @@ Fetch `http://127.0.0.1:8765/api/data` (start `island.cmd` first if it is not ru
 - `api.today | week | d30 | month`: Claude API spend in USD from OpenCode (`week` and `d30` are rolling 7 and 30 days, `month` is the calendar month); `api.sources` breaks it down per database.
 - `calls`: AutoSwarm delegations, newest first. Skip `probe: true` (installation self-checks). `state` is `running`, `waiting` (blocked on an approval, see `approvals`), `completed`, `failed`, `lost` (runner died) or `cancelled`.
 - `summary`: counts for today, running, waiting and failed.
+- `calls[].usage`: `scope: "call"` means `tokens` / `cost` are what THIS round used (growth of the conversation's counter while it ran); `scope: "session"` means only the whole conversation's total was available. The same agent is reused for many rounds, so never read a call's session total as that call's cost.
+- `delegation`: `totals` (agents, calls, completed, failed, running, tokens, cost, today, `by_provider`) and `agents[]` grouped per sub-agent (name, rounds, completed/failed, tokens, last state/task). Use it to answer "how many sub-agents / how many tokens have I dispatched".
+- `codex.tokens_today` / `codex.tokens_week`: Codex tokens (cache included) from its session counters.
 
 ## Quota sources
 

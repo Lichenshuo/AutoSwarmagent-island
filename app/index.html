@@ -121,6 +121,28 @@ h2{font-size:clamp(20px,3.4vw,26px);font-weight:700;letter-spacing:-0.02em;line-
 .empty{padding:34px 24px;text-align:center;font-size:14px;color:var(--text-3)}
 .note{margin-top:12px;font-size:12.5px;color:var(--text-3);padding-left:4px}
 
+/* delegation overview */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(200px,100%),1fr));gap:14px;margin-bottom:14px}
+.stat{background:var(--surface);border-radius:var(--r-card);box-shadow:var(--sh-card);padding:18px 20px}
+.stat-k{font-size:12.5px;font-weight:600;color:var(--text-3)}
+.stat-v{margin-top:8px;font-size:32px;font-weight:700;letter-spacing:-0.03em;line-height:1.1}
+.stat-v small{font-size:14px;font-weight:600;color:var(--text-3);margin-left:3px;letter-spacing:0}
+.stat-n{margin-top:6px;font-size:12.5px;color:var(--text-3);line-height:1.5}
+.arow{display:grid;grid-template-columns:34px minmax(0,1.5fr) minmax(0,1fr) minmax(96px,1.1fr) auto;align-items:center;gap:14px;
+  padding:14px clamp(17px,3vw,24px);cursor:pointer;transition:background .15s}
+.arow + .arow{border-top:1px solid var(--hairline)}
+.arow:hover,.arow.on{background:var(--hover)}
+.arow.on{box-shadow:inset 3px 0 0 var(--accent)}
+.a-sub{margin-top:2px;font-size:12.5px;color:var(--text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.a-num{font-size:13px;color:var(--text-2);white-space:nowrap}
+.a-num b{color:var(--text);font-weight:600}
+.a-bar{margin-top:6px;height:4px;border-radius:var(--r-pill);background:var(--track);overflow:hidden}
+.a-bar i{display:block;height:100%;background:var(--accent);border-radius:var(--r-pill)}
+.chip-f{display:inline-flex;align-items:center;gap:8px;margin:0 0 12px 4px;padding:5px 6px 5px 12px;border-radius:var(--r-pill);
+  background:rgba(0,113,227,0.1);color:var(--accent-link);font-size:13px;font-weight:550}
+.chip-f button{border:none;background:rgba(0,113,227,0.15);color:inherit;border-radius:var(--r-pill);cursor:pointer;font:inherit;font-size:12px;padding:2px 9px}
+@media(max-width:720px){.arow{grid-template-columns:34px minmax(0,1fr) auto}.arow .a-mid,.arow .a-tok{display:none}}
+
 /* calibration dialog */
 dialog.cal{border:none;border-radius:var(--r-panel);padding:28px;width:min(420px,calc(100vw - 32px));
   background:var(--surface);color:var(--text);box-shadow:var(--sh-lift);margin:auto}
@@ -177,6 +199,13 @@ footer{margin:clamp(48px,8vw,80px) 0 40px;font-size:12px;color:var(--text-3);lin
 
   <section class="block">
     <div class="block-head">
+      <div><h2>副 agent 总览</h2><p class="sub">累计派过多少活、各自跑了几轮、耗了多少 token；点一个 agent 就只看它的派活记录</p></div>
+    </div>
+    <div id="overview"></div>
+  </section>
+
+  <section class="block" id="calls-block">
+    <div class="block-head">
       <div><h2>派活记录</h2><p class="sub">主 agent 通过 AutoSwarm 分派的每一次任务，点开看详情</p></div>
       <div class="seg" id="seg">
         <button data-f="all" class="active">全部</button>
@@ -216,7 +245,7 @@ footer{margin:clamp(48px,8vw,80px) 0 40px;font-size:12px;color:var(--text-3);lin
 
 <script>
 const $ = s => document.querySelector(s);
-const state = { data: null, filter: 'all', open: new Set() };
+const state = { data: null, filter: 'all', agent: null, open: new Set() };
 const NAMES = { codex: 'Codex', opencode: 'OpenCode', 'claude-code': 'Claude Code' };
 const MONO = { codex: 'CX', opencode: 'OC', 'claude-code': 'CC' };
 const PLAN = { pro: 'Pro 订阅', max: 'Max 订阅', plus: 'Plus 订阅', team: 'Team', free: '免费版' };
@@ -341,7 +370,9 @@ function renderCards(d) {
     <div class="kv-row"><span>近 7 天 token</span><span class="num">${tokens(c.tokens_week)}</span></div></div>`;
   $('#cards').innerHTML =
     subscriptionCard('Claude', '主 agent · 桌面端', c.plan, c, claudeExtra, '在 Claude 桌面端打开 设置 → 用量，额度会同步过来') +
-    subscriptionCard('Codex', '副 agent · 小活', d.codex?.plan, d.codex, '', '用一次 Codex 后显示') +
+    subscriptionCard('Codex', '副 agent · 小活', d.codex?.plan, d.codex,
+      `<div class="kv"><div class="kv-row"><span>今日 token</span><span class="num">${tokens(d.codex?.tokens_today || 0)}</span></div>
+       <div class="kv-row"><span>近 7 天 token</span><span class="num">${tokens(d.codex?.tokens_week || 0)}</span></div></div>`, '用一次 Codex 后显示') +
     apiCard(d.api);
 }
 
@@ -360,7 +391,8 @@ function callRow(c) {
   const u = c.usage;
   const meta = [c.name, NAMES[c.provider] || c.provider, model(c.model) || '默认模型', c.effort ? '思考 ' + c.effort : null,
     c.round > 1 ? `第 ${c.round} 轮` : null, base(c.workspace), dur,
-    u?.tokens ? '会话 ' + tokens(u.tokens) + ' token' : null, u?.cost != null ? usd(u.cost) : null].filter(Boolean).join(' · ');
+    u?.tokens ? (u.scope === 'call' ? '本次 ' + tokens(u.tokens) + ' token' : '会话累计 ' + tokens(u.tokens) + ' token（拆不出本次）') : null,
+    u?.cost ? usd(u.cost) : null].filter(Boolean).join(' · ');
   const open = state.open.has(c.call_id) ? 'open' : '';
   const result = c.error ? `<span class="err">${esc(c.error)}</span>\n\n${esc(c.content)}` : esc(c.content || (c.state === 'running' ? '还在执行…' : '（没有返回内容）'));
   return `<div class="row ${open}" data-id="${c.call_id}">
@@ -382,10 +414,13 @@ function renderCalls(d) {
   const all = d.calls.filter(c => !c.probe);
   const hidden = d.calls.length - all.length;
   const f = state.filter;
-  const list = all.filter(c => f === 'all' || c.provider === f || (f === 'running' && ['running', 'waiting'].includes(c.state))
-    || (f === 'bad' && ['failed', 'lost', 'cancelled', 'unknown', 'waiting'].includes(c.state)));
+  const key = c => `${c.provider}|${c.name || c.agent_id}`;
+  const list = all.filter(c => (!state.agent || key(c) === state.agent)
+    && (f === 'all' || c.provider === f || (f === 'running' && ['running', 'waiting'].includes(c.state))
+    || (f === 'bad' && ['failed', 'lost', 'cancelled', 'unknown', 'waiting'].includes(c.state))));
+  const chip = state.agent ? `<div class="chip-f">只看 ${esc(agentLabel(state.agent))}<button id="clear-agent">清除</button></div>` : '';
   if (!list.length) {
-    $('#calls').innerHTML = `<div class="panel"><div class="empty">${all.length ? '没有符合条件的记录' : '还没有派活记录。让主 agent 用一次 autoswarm 就会出现在这里'}</div></div>`;
+    $('#calls').innerHTML = chip + `<div class="panel"><div class="empty">${all.length ? '没有符合条件的记录' : '还没有派活记录。让主 agent 用一次 autoswarm 就会出现在这里'}</div></div>`;
     return;
   }
   const groups = [];
@@ -394,7 +429,7 @@ function renderCalls(d) {
     if (!groups.length || groups[groups.length - 1].label !== label) groups.push({ label, items: [] });
     groups[groups.length - 1].items.push(c);
   }
-  $('#calls').innerHTML = groups.map(g => `<div class="group-label">${g.label}</div><div class="panel">${g.items.map(callRow).join('')}</div>`).join('')
+  $('#calls').innerHTML = chip + groups.map(g => `<div class="group-label">${g.label}</div><div class="panel">${g.items.map(callRow).join('')}</div>`).join('')
     + (hidden ? `<p class="note">已隐藏 ${hidden} 条安装时的连通性自检</p>` : '');
 }
 function renderSessions(d) {
@@ -411,12 +446,49 @@ function renderSessions(d) {
   </div></div>`).join('')}</div>`;
 }
 
+const PNAME = { codex: 'Codex', opencode: 'OpenCode', 'claude-code': 'Claude Code' };
+function agentLabel(key) {
+  const a = (state.data?.delegation?.agents || []).find(x => x.key === key);
+  return a ? (a.name || a.agent_id) + ' · ' + (PNAME[a.provider] || a.provider) : key;
+}
+function renderOverview(d) {
+  const dg = d.delegation || { totals: {}, agents: [] };
+  const t = dg.totals;
+  if (!t.calls) {
+    $('#overview').innerHTML = '<div class="panel"><div class="empty">还没有派过活</div></div>';
+    return;
+  }
+  const bp = Object.entries(t.by_provider || {}).map(([p, v]) => `${PNAME[p] || p} ${tokens(v.tokens)}`).join(' · ');
+  const stat = (k, v, small, note) => `<div class="stat"><div class="stat-k">${k}</div><div class="stat-v num">${v}${small ? `<small>${small}</small>` : ''}</div><div class="stat-n num">${note || '&nbsp;'}</div></div>`;
+  const costs = Object.entries(t.by_provider || {}).filter(([, v]) => v.cost > 0);
+  const tiles = stat('副 agent', t.agents, '个', `其中 ${dg.agents.filter(a => a.running).length} 个正在跑`)
+    + stat('派活次数', t.calls, '次', `完成 ${t.completed} · 异常 ${t.failed}${t.running ? ' · 进行中 ' + t.running : ''}<br>今天 ${t.calls_today} 次`)
+    + stat('累计 token', tokens(t.tokens), '', `${bp || '—'}${t.approx ? '<br>有的 agent 只能拿到会话累计，没算进来' : ''}<br>今天 ${tokens(t.tokens_today)}`)
+    + (costs.length ? stat('OpenCode 花费', usd(costs.reduce((s, [, v]) => s + v.cost, 0)), '', '按各轮实际记录累计') : '');
+  const max = Math.max(...dg.agents.map(a => a.tokens), 1);
+  const stateWord = { completed: '完成', failed: '失败', lost: '中断', cancelled: '已取消', running: '进行中', waiting: '待批准', unknown: '未知' };
+  const rows = dg.agents.map(a => {
+    const nm = a.name || a.agent_id;
+    const bad = ['failed', 'lost', 'cancelled', 'unknown', 'waiting'].includes(a.last_state);
+    return `<div class="arow ${state.agent === a.key ? 'on' : ''}" data-agent="${esc(a.key)}">
+      <div class="mono">${esc((a.name || PNAME[a.provider] || '··').slice(0, 3))}</div>
+      <div style="min-width:0"><div class="row-title">${esc(nm)}<span style="font-weight:500;color:var(--text-3)"> · ${esc(PNAME[a.provider] || a.provider)}</span></div>
+        <div class="a-sub">${esc([model(a.model), a.effort ? '思考 ' + a.effort : null].filter(Boolean).join(' · ') || '默认模型')}${a.last_task ? ' — ' + esc(a.last_task) : ''}</div></div>
+      <div class="a-mid a-num"><b>${a.rounds}</b> 轮 · 完成 <b>${a.completed}</b>${a.failed ? ` · <span class="err">异常 <b>${a.failed}</b></span>` : ''}${a.running ? ` · 进行中 <b>${a.running}</b>` : ''}</div>
+      <div class="a-tok a-num">${a.approx && !a.tokens ? `<span title="这个 agent 的数据拆不出每一轮，只有整个会话的累计">会话累计 <b>${tokens(a.session_tokens)}</b></span>` : `<b>${tokens(a.tokens)}</b> token`}${a.cost > 0 ? ' · ' + usd(a.cost) : ''}
+        <div class="a-bar"><i style="width:${Math.max(2, a.tokens / max * 100)}%"></i></div></div>
+      <div class="row-side"><span class="state ${bad ? 'bad' : ''}">${stateWord[a.last_state] || esc(a.last_state)}</span><div class="num">${a.last_at ? dayLabel(a.last_at) + ' ' + clock(a.last_at) : ''}</div></div>
+    </div>`;
+  }).join('');
+  $('#overview').innerHTML = `<div class="stats">${tiles}</div><div class="panel">${rows}</div>`;
+}
 function render() {
   const d = state.data;
   if (!d) return;
   const s = d.summary;
   $('#lede').innerHTML = `今天派活 <b>${s.calls_today}</b> 次 · 进行中 <b>${s.running}</b>${s.failed ? ` · 异常 <b style="color:var(--heat)">${s.failed}</b>` : ''} · Claude API 今日 <b>${usd(d.api.today)}</b>`;
   renderCards(d);
+  renderOverview(d);
   renderCalls(d);
   renderSessions(d);
   $('#updated').textContent = '更新于 ' + clock(d.generated_at);
@@ -447,6 +519,15 @@ $('#calls').addEventListener('click', e => {
   row.classList.toggle('open');
 });
 $('#refresh').addEventListener('click', load);
+$('#overview').addEventListener('click', e => {
+  const row = e.target.closest('[data-agent]'); if (!row) return;
+  state.agent = state.agent === row.dataset.agent ? null : row.dataset.agent;
+  renderOverview(state.data); renderCalls(state.data);
+  if (state.agent) $('#calls-block').scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
+$('#calls').addEventListener('click', e => {
+  if (e.target.closest('#clear-agent')) { state.agent = null; renderOverview(state.data); renderCalls(state.data); }
+});
 
 /* API balance calibration */
 const cal = $('#cal');

@@ -82,8 +82,38 @@ def read_json(path):
 _codex_cache = {}
 
 
+def gain(events, start, end, idx=1):
+    """How much a cumulative counter grew between start and end (unix seconds).
+
+    events: [(ts, cumulative_a, cumulative_b, ...)] sorted by ts; idx picks which counter. None when unknown."""
+    if not events:
+        return None
+    base = last = 0
+    for ev in events:
+        if ev[0] <= start:
+            base = ev[idx]
+        if ev[0] <= end + 3:       # a few seconds of slack: the log is flushed just after the call returns
+            last = ev[idx]
+        else:
+            break
+    return max(0, last - base)
+
+
+def counter_days(events, idx=1):
+    """Per local day increase of a cumulative counter."""
+    out, prev = {}, 0
+    for ev in events or []:
+        cur = ev[idx]
+        step = cur - prev if cur >= prev else cur      # a drop means the counter restarted
+        prev = cur
+        if step > 0:
+            day = local_day(ev[0])
+            out[day] = out.get(day, 0) + step
+    return out
+
+
 def parse_codex_file(path):
-    info = {"id": None, "cwd": None, "originator": None, "tokens": None, "rate": None, "rate_ts": 0}
+    info = {"id": None, "cwd": None, "originator": None, "tokens": None, "rate": None, "rate_ts": 0, "events": []}
     with open(path, "rb") as fh:
         for raw in fh:
             if b'"session_meta"' in raw and info["id"] is None:
@@ -101,6 +131,9 @@ def parse_codex_file(path):
                 usage = (p.get("info") or {}).get("total_token_usage")
                 if usage:
                     info["tokens"] = usage
+                    ts, total = iso_to_ts(row.get("timestamp")), usage.get("total_tokens")
+                    if ts and isinstance(total, (int, float)) and (not info["events"] or info["events"][-1][1] != total):
+                        info["events"].append((ts, int(total)))
                 rl = p.get("rate_limits")
                 # Codex also logs other limit families (e.g. "premium") with empty windows; keep the real ones.
                 if rl and (rl.get("primary") or rl.get("secondary")):
@@ -732,6 +765,22 @@ def api_snapshot(events_only=False):
     month = today[:7]
     daily = {utc_day(now - i * 86400): 0.0 for i in range(14)}
     sources, sessions, events = [], {}, []
+    oc_events = {}   # session id -> [(ts, cumulative tokens, cumulative cost)]
+
+    def note(sid, ts, o):
+        if not sid:
+            return
+        t = o.get("tokens") or o.get("usage") or {}
+        if not isinstance(t, dict):
+            return
+        cache = t.get("cache") if isinstance(t.get("cache"), dict) else {}
+        tok = sum(int(x or 0) for x in (t.get("input"), t.get("output"), cache.get("read", t.get("cacheRead")),
+                                        cache.get("write", t.get("cacheWrite"))) if isinstance(x, (int, float)))
+        cost = float(o.get("cost") or 0)
+        if tok or cost:
+            lst = oc_events.setdefault(sid, [])
+            lst.append((ts, (lst[-1][1] if lst else 0) + tok, (lst[-1][2] if lst else 0.0) + cost))
+
     for label, db in opencode_dbs():
         if not db.exists():
             continue
@@ -740,9 +789,14 @@ def api_snapshot(events_only=False):
             con = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=2)
             flavor = opencode_flavor(con)
             if flavor == "v1":
-                rows = con.execute("select time_created, data from message where data like '%\"cost\"%'")
-                for created, data in rows:
+                try:
+                    rows = con.execute("select time_created, data, session_id from message where data like '%\"cost\"%' order by time_created").fetchall()
+                except sqlite3.OperationalError:      # no session_id column: per-call numbers are unavailable
+                    rows = [(c, d, None) for c, d in con.execute("select time_created, data from message where data like '%\"cost\"%'")]
+                for created, data, msg_sid in rows:
                     o = json.loads(data)
+                    if o.get("role") == "assistant":
+                        note(msg_sid, created / 1000, o)
                     if o.get("role") != "assistant" or o.get("providerID") != "anthropic":
                         continue
                     _add_cost(src, daily, o.get("cost") or 0, created / 1000, today, week, d30, month)
@@ -752,9 +806,13 @@ def api_snapshot(events_only=False):
                     sessions[sid] = {"title": title, "cost": float(cost or 0),
                                      "tokens": sum(int(x or 0) for x in (ti, to, tcr, tcw))}
             elif flavor == "v2":
-                rows = con.execute("select time_created, data from session_message where type='assistant' and data like '%\"cost\"%'")
-                for created, data in rows:
+                try:
+                    rows = con.execute("select time_created, data, session_id from session_message where type='assistant' and data like '%\"cost\"%' order by time_created").fetchall()
+                except sqlite3.OperationalError:
+                    rows = [(c, d, None) for c, d in con.execute("select time_created, data from session_message where type='assistant' and data like '%\"cost\"%'")]
+                for created, data, msg_sid in rows:
                     o = json.loads(data)
+                    note(msg_sid, created / 1000, o)
                     if (o.get("model") or {}).get("providerID") != "anthropic":
                         continue
                     _add_cost(src, daily, o.get("cost") or 0, created / 1000, today, week, d30, month)
@@ -767,6 +825,9 @@ def api_snapshot(events_only=False):
         except Exception as exc:
             src["error"] = str(exc)
         sources.append(src)
+    for sid, evs in oc_events.items():
+        if sid in sessions:
+            sessions[sid]["events"] = evs
     if events_only:
         return events
     total = {k: sum(s[k] for s in sources) for k in ("today", "week", "d30", "month", "total")}
@@ -1071,13 +1132,24 @@ def calls_snapshot(codex_sessions, opencode_sessions):
         else:
             state = info["state"]
         session = info.get("native_session_id")
+        created = iso_to_ts(task.get("created_at"))
+        finished = iso_to_ts((result or {}).get("finished_at"))
+        # Tokens of THIS call only: how much the conversation's counter grew while it ran. The same agent
+        # (conversation) is reused for many rounds, so its running total says nothing about one round.
         usage = None
+        end = finished or time.time()
         if task["provider"] == "codex" and session in codex_sessions and codex_sessions[session]["tokens"]:
-            t = codex_sessions[session]["tokens"]
-            usage = {"tokens": t.get("total_tokens"), "cost": None}
+            sess = codex_sessions[session]
+            delta = gain(sess.get("events"), created or 0, end) if created else None
+            usage = {"tokens": delta, "cost": None, "scope": "call", "session_tokens": sess["tokens"].get("total_tokens")} if delta is not None else \
+                    {"tokens": sess["tokens"].get("total_tokens"), "cost": None, "scope": "session"}
         elif task["provider"] == "opencode" and session in opencode_sessions:
             s = opencode_sessions[session]
-            usage = {"tokens": s["tokens"], "cost": s["cost"]}
+            if s.get("events") and created:
+                usage = {"tokens": gain(s["events"], created, end, 1), "cost": gain(s["events"], created, end, 2), "scope": "call",
+                         "session_tokens": s["tokens"]}
+            else:
+                usage = {"tokens": s["tokens"], "cost": s["cost"], "scope": "session"}
         activity = None
         if state in ("running", "waiting") and session:
             if task["provider"] == "codex" and session in codex_sessions:
@@ -1085,8 +1157,6 @@ def calls_snapshot(codex_sessions, opencode_sessions):
             elif task["provider"] == "opencode":
                 activity = opencode_activity(session)
         selection = task.get("native_options") or {}
-        created = iso_to_ts(task.get("created_at"))
-        finished = iso_to_ts((result or {}).get("finished_at"))
         calls.append({
             "call_id": task["call_id"],
             "agent_id": task.get("agent_id") or task["call_id"],
@@ -1144,10 +1214,78 @@ def cached(key, ttl, fn):
 BAD_STATES = ("failed", "lost", "cancelled", "unknown")
 
 
+def codex_tokens(codex_sessions):
+    """Codex tokens used today / in the last 7 local days, from the per-session counters."""
+    now = time.time()
+    today = local_day(now)
+    week = {local_day(now - i * 86400) for i in range(7)}
+    days = {}
+    for sess in codex_sessions.values():
+        for day, n in counter_days(sess.get("events")).items():
+            days[day] = days.get(day, 0) + n
+    return {"tokens_today": days.get(today, 0), "tokens_week": sum(n for d, n in days.items() if d in week)}
+
+
+def _first_line(text, limit=90):
+    for line in (text or "").lstrip("\ufeff").splitlines():
+        if line.strip():
+            line = line.strip()
+            return line if len(line) <= limit else line[:limit] + "…"
+    return ""
+
+
+def delegation_summary(calls):
+    """Everything dispatched so far, grouped by sub-agent (the name, or the conversation when unnamed)."""
+    real = [c for c in calls if not c["probe"]]
+    agents, today = {}, local_day(time.time())
+    totals = {"calls": 0, "completed": 0, "failed": 0, "running": 0, "tokens": 0, "cost": 0.0,
+              "calls_today": 0, "tokens_today": 0, "by_provider": {}, "approx": False, "first_at": None}
+    for c in sorted(real, key=lambda c: c["created_at"] or 0):
+        key = f'{c["provider"]}|{c["name"] or c["agent_id"]}'
+        a = agents.setdefault(key, {"key": key, "name": c["name"], "agent_id": c["agent_id"], "provider": c["provider"],
+                                    "model": None, "effort": None, "rounds": 0, "completed": 0, "failed": 0, "running": 0,
+                                    "tokens": 0, "cost": 0.0, "approx": False, "first_at": c["created_at"], "last_at": None,
+                                    "last_state": None, "last_task": ""})
+        u = c.get("usage") or {}
+        a["rounds"] += 1
+        a["model"], a["effort"] = c["model"] or a["model"], c["effort"] or a["effort"]
+        a["last_at"], a["last_state"], a["last_task"] = c["created_at"], c["state"], _first_line(c["prompt"])
+        if c["state"] == "completed":
+            a["completed"] += 1
+        elif c["state"] in BAD_STATES:
+            a["failed"] += 1
+        elif c["state"] in ("running", "waiting"):
+            a["running"] += 1
+        if u.get("scope") == "call" and u.get("tokens") is not None:
+            a["tokens"] += u["tokens"]
+            a["cost"] += u.get("cost") or 0.0
+            if c["created_at"] and local_day(c["created_at"]) == today:
+                totals["tokens_today"] += u["tokens"]
+            bp = totals["by_provider"].setdefault(c["provider"], {"calls": 0, "tokens": 0, "cost": 0.0})
+            bp["tokens"] += u["tokens"]
+            bp["cost"] += u.get("cost") or 0.0
+        elif u:
+            a["approx"] = totals["approx"] = True       # only a conversation-wide total was available
+            a["session_tokens"] = u.get("tokens")
+        totals["by_provider"].setdefault(c["provider"], {"calls": 0, "tokens": 0, "cost": 0.0})["calls"] += 1
+        totals["calls"] += 1
+        totals["first_at"] = totals["first_at"] or c["created_at"]
+        if c["created_at"] and local_day(c["created_at"]) == today:
+            totals["calls_today"] += 1
+    for a in agents.values():
+        totals["completed"] += a["completed"]
+        totals["failed"] += a["failed"]
+        totals["running"] += a["running"]
+        totals["tokens"] += a["tokens"]
+        totals["cost"] += a["cost"]
+    totals["agents"] = len(agents)
+    return {"totals": totals, "agents": sorted(agents.values(), key=lambda a: a["last_at"] or 0, reverse=True)}
+
+
 def snapshot():
     # Quotas and spend change slowly; delegation state is read fresh every time.
     codex_sessions, codex_limits = cached("codex", 20, codex_snapshot)
-    codex_limits = codex_with_live(codex_limits)
+    codex_limits = {**codex_with_live(codex_limits), **codex_tokens(codex_sessions)}
     api, opencode_sessions = cached("api", 20, api_snapshot)
     calls = calls_snapshot(codex_sessions, opencode_sessions)
     today = local_day(time.time())
@@ -1158,6 +1296,7 @@ def snapshot():
         "codex": codex_limits,
         "api": api,
         "calls": calls,
+        "delegation": delegation_summary(calls),
         "summary": {
             "calls_today": sum(1 for c in real if c["created_at"] and local_day(c["created_at"]) == today),
             "running": sum(1 for c in real if c["state"] == "running"),

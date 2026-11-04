@@ -22,7 +22,7 @@ A Dynamic-Island style status pill for Windows plus a local dashboard, for peopl
 
 **交互**：悬停展开，拖动移动位置（会记住），双击回到屏幕顶部正中。后台运行，不占任务栏、不抢焦点，周围区域鼠标可直接穿透。
 
-**仪表盘**（`http://127.0.0.1:8765/`）：额度与花费、按天分组的完整派活记录（可展开看任务与结果）、主 agent 会话与 token 用量。
+**仪表盘**（`http://127.0.0.1:8765/`）：额度与花费（Claude / Codex 都有今日、近 7 天 token）、**副 agent 总览**（派过多少个 agent、派活多少次、累计 token 和花费，以及每个 agent 跑了几轮、完成 / 异常、耗了多少 token，点一个 agent 只看它的记录）、按天分组的完整派活记录（可展开看任务与结果，每条显示的是**这一轮**用的 token，不是整个会话的累计）、主 agent 会话与 token 用量。
 
 全部只读本地数据，不改动任何 agent 的文件。
 
