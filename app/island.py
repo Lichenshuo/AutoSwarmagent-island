@@ -323,7 +323,8 @@ def fatal(message):
     except OSError:
         pass
     try:
-        ctypes.windll.user32.MessageBoxW(None, message, "Agent Island", 0x10)
+        # MB_ICONERROR | MB_SETFOREGROUND | MB_TOPMOST: a dialog from a console-less process must not hide behind other windows
+        ctypes.windll.user32.MessageBoxW(None, message, "Agent Island", 0x10 | 0x10000 | 0x40000)
     except Exception:
         print(message, file=sys.stderr)
     sys.exit(0)        # exit code 0: the supervisor must not restart-loop on a setup problem
@@ -349,12 +350,12 @@ def main():
     window.events.before_show += lambda: prepare_window(window)
     threading.Thread(target=track_pointer, args=(window, api), daemon=True).start()
     try:
-        webview.start(gui="edgechromium")    # the legacy IE engine would render the page broken
+        webview.start()        # exactly as before: forcing a GUI backend is untested and broke the window
     except Exception as exc:
         log_error("webview.start")
-        fatal("无法启动 WebView2 窗口（灵动岛需要 Microsoft Edge WebView2 运行时）。\n"
+        fatal("无法启动灵动岛窗口（需要 Microsoft Edge WebView2 运行时）。\n"
               "请安装：https://developer.microsoft.com/microsoft-edge/webview2/\n\n"
-              f"Cannot start the WebView2 window: {exc}")
+              f"Cannot start the window: {exc}")
 
 
 if __name__ == "__main__":
