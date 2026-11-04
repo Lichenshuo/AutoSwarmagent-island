@@ -1213,6 +1213,39 @@ def cached(key, ttl, fn):
 
 BAD_STATES = ("failed", "lost", "cancelled", "unknown")
 
+# ── Dismissed anomalies ───────────────────────────────────────────────────
+# "Clearing" an anomaly only hides it here (island + dashboard share this list); AutoSwarm's own
+# records are never touched, and anything can be restored.
+DISMISSED_FILE = DATA / "island-dismissed.json"
+DISMISSED_KEEP = 2000
+_dismiss_lock = threading.Lock()
+
+
+def dismissed_ids():
+    value = read_json(DISMISSED_FILE)
+    return [str(x) for x in value] if isinstance(value, list) else []
+
+
+def set_dismissed(add=(), remove=(), clear=False):
+    with _dismiss_lock:
+        ids = [] if clear else dismissed_ids()
+        drop = {str(x) for x in remove}
+        ids = [x for x in ids if x not in drop]
+        for x in map(str, add):
+            if x not in ids:
+                ids.append(x)
+        ids = ids[-DISMISSED_KEEP:]
+        DATA.mkdir(parents=True, exist_ok=True)
+        tmp = DISMISSED_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(ids), encoding="utf-8")
+        os.replace(tmp, DISMISSED_FILE)
+    return ids
+
+
+def unresolved(c):
+    """An anomaly still worth a look: failed / lost / cancelled, not retried since, not dismissed."""
+    return c["state"] in BAD_STATES and not c.get("superseded") and not c.get("dismissed")
+
 
 def codex_tokens(codex_sessions):
     """Codex tokens used today / in the last 7 local days, from the per-session counters."""
@@ -1238,12 +1271,12 @@ def delegation_summary(calls):
     """Everything dispatched so far, grouped by sub-agent (the name, or the conversation when unnamed)."""
     real = [c for c in calls if not c["probe"]]
     agents, today = {}, local_day(time.time())
-    totals = {"calls": 0, "completed": 0, "failed": 0, "running": 0, "tokens": 0, "cost": 0.0,
+    totals = {"calls": 0, "completed": 0, "failed": 0, "failed_total": 0, "running": 0, "tokens": 0, "cost": 0.0,
               "calls_today": 0, "tokens_today": 0, "by_provider": {}, "approx": False, "first_at": None}
     for c in sorted(real, key=lambda c: c["created_at"] or 0):
         key = f'{c["provider"]}|{c["name"] or c["agent_id"]}'
         a = agents.setdefault(key, {"key": key, "name": c["name"], "agent_id": c["agent_id"], "provider": c["provider"],
-                                    "model": None, "effort": None, "rounds": 0, "completed": 0, "failed": 0, "running": 0,
+                                    "model": None, "effort": None, "rounds": 0, "completed": 0, "failed": 0, "failed_total": 0, "running": 0,
                                     "tokens": 0, "cost": 0.0, "approx": False, "first_at": c["created_at"], "last_at": None,
                                     "last_state": None, "last_task": ""})
         u = c.get("usage") or {}
@@ -1253,7 +1286,9 @@ def delegation_summary(calls):
         if c["state"] == "completed":
             a["completed"] += 1
         elif c["state"] in BAD_STATES:
-            a["failed"] += 1
+            a["failed_total"] += 1
+            if unresolved(c):
+                a["failed"] += 1
         elif c["state"] in ("running", "waiting"):
             a["running"] += 1
         if u.get("scope") == "call" and u.get("tokens") is not None:
@@ -1275,6 +1310,7 @@ def delegation_summary(calls):
     for a in agents.values():
         totals["completed"] += a["completed"]
         totals["failed"] += a["failed"]
+        totals["failed_total"] += a["failed_total"]
         totals["running"] += a["running"]
         totals["tokens"] += a["tokens"]
         totals["cost"] += a["cost"]
@@ -1288,6 +1324,9 @@ def snapshot():
     codex_limits = {**codex_with_live(codex_limits), **codex_tokens(codex_sessions)}
     api, opencode_sessions = cached("api", 20, api_snapshot)
     calls = calls_snapshot(codex_sessions, opencode_sessions)
+    dismissed = set(dismissed_ids())
+    for c in calls:
+        c["dismissed"] = c["call_id"] in dismissed
     today = local_day(time.time())
     real = [c for c in calls if not c["probe"]]
     return {
@@ -1296,12 +1335,13 @@ def snapshot():
         "codex": codex_limits,
         "api": api,
         "calls": calls,
+        "dismissed": sorted(dismissed),
         "delegation": delegation_summary(calls),
         "summary": {
             "calls_today": sum(1 for c in real if c["created_at"] and local_day(c["created_at"]) == today),
             "running": sum(1 for c in real if c["state"] == "running"),
             "waiting": sum(1 for c in real if c["state"] == "waiting"),
-            "failed": sum(1 for c in real if c["state"] in BAD_STATES and not c["superseded"]),
+            "failed": sum(1 for c in real if unresolved(c)),
         },
     }
 
@@ -1338,15 +1378,22 @@ class Handler(BaseHTTPRequestHandler):
         # Only the dashboard on this machine may write: reject cross-site requests from other pages.
         origin = self.headers.get("Origin")
         host = self.headers.get("Host", "")
-        if self.path != "/api/calibrate":
+        if self.path not in ("/api/calibrate", "/api/dismiss"):
             return self._send(b"not found", "text/plain", 404)
         if host.split(":")[0] not in ("127.0.0.1", "localhost") or (
                 origin and origin.split("://")[-1].split(":")[0] not in ("127.0.0.1", "localhost")) or \
                 "application/json" not in (self.headers.get("Content-Type") or ""):
             return self._send(b'{"error":"forbidden"}', "application/json", 403)
         try:
-            length = min(int(self.headers.get("Content-Length") or 0), 4096)
+            length = min(int(self.headers.get("Content-Length") or 0), 65536)
             body = json.loads(self.rfile.read(length) or b"{}")
+            if self.path == "/api/dismiss":
+                ids = lambda k: [str(x) for x in body.get(k) or [] if isinstance(x, (str, int))][:2000]
+                add = ids("ids")
+                if body.get("all_bad"):      # everything still showing as an anomaly right now
+                    add += [c["call_id"] for c in snapshot()["calls"] if not c["probe"] and unresolved(c)]
+                kept = set_dismissed(add=add, remove=ids("restore"), clear=bool(body.get("restore_all")))
+                return self._send(json.dumps({"added": add, "dismissed": len(kept)}).encode(), "application/json; charset=utf-8")
             opt = lambda k: None if body.get(k) in (None, "") else float(body[k])
             result = calibrate(float(body["balance"]), opt("month_spend"), opt("total"))
             self._send(json.dumps(result, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")

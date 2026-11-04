@@ -1,0 +1,3 @@
+# Optional: lets the island read AutoSwarm's dispatch records. Needs Git installed.
+# Without it the island still shows quotas and API spend, only the delegation history stays empty.
+autoswarm @ git+https://github.com/HKUDS/AutoSwarm.git

@@ -382,6 +382,7 @@ async function load() {
     if (d.error) throw new Error(d.error);
     const first = !S.data;
     S.data = d;
+    S.dismissed = new Set(d.dismissed || []);    // the server's list is the truth (shared with the dashboard)
     if (first) d.calls.forEach(c => S.prev.set(c.call_id, c.state)); else detectFinished(d);
     render();
   } catch (e) {

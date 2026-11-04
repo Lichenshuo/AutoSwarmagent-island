@@ -121,6 +121,15 @@ h2{font-size:clamp(20px,3.4vw,26px);font-weight:700;letter-spacing:-0.02em;line-
 .empty{padding:34px 24px;text-align:center;font-size:14px;color:var(--text-3)}
 .note{margin-top:12px;font-size:12.5px;color:var(--text-3);padding-left:4px}
 
+/* anomaly toolbar */
+.toolbar{display:flex;align-items:center;gap:10px 12px;flex-wrap:wrap;margin:0 0 14px 4px;font-size:13px;color:var(--text-2)}
+.toolbar b{color:var(--text);font-weight:600}
+.toolbar .pill-btn{height:30px;padding:0 13px;font-size:13px}
+.pill-btn.warn{background:var(--heat-bg);color:var(--heat)}
+.pill-btn.warn:hover{background:rgba(255,107,0,0.18)}
+.row-side .link-btn{margin-top:3px;display:block;margin-left:auto}
+.row.dim .row-title,.row.dim .row-meta{opacity:.55}
+
 /* delegation overview */
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(200px,100%),1fr));gap:14px;margin-bottom:14px}
 .stat{background:var(--surface);border-radius:var(--r-card);box-shadow:var(--sh-card);padding:18px 20px}
@@ -212,7 +221,7 @@ footer{margin:clamp(48px,8vw,80px) 0 40px;font-size:12px;color:var(--text-3);lin
         <button data-f="codex">Codex</button>
         <button data-f="opencode">OpenCode</button>
         <button data-f="running">进行中</button>
-        <button data-f="bad">异常</button>
+        <button data-f="bad">异常<span id="bad-n"></span></button>
       </div>
     </div>
     <div id="calls"></div>
@@ -245,7 +254,10 @@ footer{margin:clamp(48px,8vw,80px) 0 40px;font-size:12px;color:var(--text-3);lin
 
 <script>
 const $ = s => document.querySelector(s);
-const state = { data: null, filter: 'all', agent: null, open: new Set() };
+const state = { data: null, filter: 'all', agent: null, open: new Set(), showDismissed: false, undo: null };
+const BADSET = ['failed', 'lost', 'cancelled', 'unknown'];
+const isBad = c => BADSET.includes(c.state);
+const needsLook = c => isBad(c) && !c.superseded && !c.dismissed;   // an anomaly still worth a look
 const NAMES = { codex: 'Codex', opencode: 'OpenCode', 'claude-code': 'Claude Code' };
 const MONO = { codex: 'CX', opencode: 'OC', 'claude-code': 'CC' };
 const PLAN = { pro: 'Pro 订阅', max: 'Max 订阅', plus: 'Plus 订阅', team: 'Team', free: '免费版' };
@@ -377,6 +389,7 @@ function renderCards(d) {
 }
 
 function stateBadge(c) {
+  if (c.dismissed && isBad(c)) return `<span class="state">已忽略 · ${({ failed: '失败', lost: '中断', cancelled: '已取消' })[c.state] || esc(c.state)}</span>`;
   if (c.state === 'running') return '<span class="state"><span class="dot"></span>进行中</span>';
   if (c.state === 'waiting') return '<span class="state bad">待批准</span>';
   if (c.state === 'completed') return '<span class="state">完成</span>';
@@ -395,11 +408,13 @@ function callRow(c) {
     u?.cost ? usd(u.cost) : null].filter(Boolean).join(' · ');
   const open = state.open.has(c.call_id) ? 'open' : '';
   const result = c.error ? `<span class="err">${esc(c.error)}</span>\n\n${esc(c.content)}` : esc(c.content || (c.state === 'running' ? '还在执行…' : '（没有返回内容）'));
-  return `<div class="row ${open}" data-id="${c.call_id}">
+  return `<div class="row ${open} ${c.dismissed && isBad(c) ? 'dim' : ''}" data-id="${c.call_id}">
     <div class="row-main">
       <div class="mono">${MONO[c.provider] || '··'}</div>
       <div style="min-width:0"><div class="row-title">${esc(title)}</div><div class="row-meta num">${esc(meta)}</div></div>
-      <div class="row-side">${stateBadge(c)}<div class="num">${c.created_at ? clock(c.created_at) : ''}</div></div>
+      <div class="row-side">${stateBadge(c)}<div class="num">${c.created_at ? clock(c.created_at) : ''}</div>${
+        c.dismissed && isBad(c) ? `<button class="link-btn" data-restore="${esc(c.call_id)}">恢复</button>`
+        : needsLook(c) ? `<button class="link-btn" data-dismiss="${esc(c.call_id)}">忽略</button>` : ''}</div>
       ${CHEV}
     </div>
     <div class="detail">
@@ -415,12 +430,20 @@ function renderCalls(d) {
   const hidden = d.calls.length - all.length;
   const f = state.filter;
   const key = c => `${c.provider}|${c.name || c.agent_id}`;
-  const list = all.filter(c => (!state.agent || key(c) === state.agent)
+  const mine = all.filter(c => !state.agent || key(c) === state.agent);
+  const shown = c => state.showDismissed || !(isBad(c) && c.dismissed);    // dismissed anomalies stay out of every view
+  const list = mine.filter(c => shown(c)
     && (f === 'all' || c.provider === f || (f === 'running' && ['running', 'waiting'].includes(c.state))
-    || (f === 'bad' && ['failed', 'lost', 'cancelled', 'unknown', 'waiting'].includes(c.state))));
+    || (f === 'bad' && (c.state === 'waiting' || (isBad(c) && (state.showDismissed || needsLook(c)))))));
+  const todo = mine.filter(needsLook).length, gone = mine.filter(c => isBad(c) && c.dismissed).length;
+  const bar = (todo || gone || state.undo) ? `<div class="toolbar">
+      ${todo ? `<span>待处理异常 <b>${todo}</b> 条</span><button class="pill-btn warn" data-clear-all>清理全部异常</button>` : '<span>没有待处理的异常</span>'}
+      ${gone ? `<button class="pill-btn" data-toggle-dismissed>${state.showDismissed ? '隐藏' : '显示'}已忽略（${gone}）</button>` : ''}
+      ${state.undo ? `<span>已清理 <b>${state.undo.ids.length}</b> 条 <button class="link-btn" data-undo>撤销</button></span>` : ''}
+    </div>` : '';
   const chip = state.agent ? `<div class="chip-f">只看 ${esc(agentLabel(state.agent))}<button id="clear-agent">清除</button></div>` : '';
   if (!list.length) {
-    $('#calls').innerHTML = chip + `<div class="panel"><div class="empty">${all.length ? '没有符合条件的记录' : '还没有派活记录。让主 agent 用一次 autoswarm 就会出现在这里'}</div></div>`;
+    $('#calls').innerHTML = chip + bar + `<div class="panel"><div class="empty">${all.length ? (f === 'bad' ? '没有异常，干净了' : '没有符合条件的记录') : '还没有派活记录。让主 agent 用一次 autoswarm 就会出现在这里'}</div></div>`;
     return;
   }
   const groups = [];
@@ -429,7 +452,7 @@ function renderCalls(d) {
     if (!groups.length || groups[groups.length - 1].label !== label) groups.push({ label, items: [] });
     groups[groups.length - 1].items.push(c);
   }
-  $('#calls').innerHTML = chip + groups.map(g => `<div class="group-label">${g.label}</div><div class="panel">${g.items.map(callRow).join('')}</div>`).join('')
+  $('#calls').innerHTML = chip + bar + groups.map(g => `<div class="group-label">${g.label}</div><div class="panel">${g.items.map(callRow).join('')}</div>`).join('')
     + (hidden ? `<p class="note">已隐藏 ${hidden} 条安装时的连通性自检</p>` : '');
 }
 function renderSessions(d) {
@@ -487,6 +510,8 @@ function render() {
   if (!d) return;
   const s = d.summary;
   $('#lede').innerHTML = `今天派活 <b>${s.calls_today}</b> 次 · 进行中 <b>${s.running}</b>${s.failed ? ` · 异常 <b style="color:var(--heat)">${s.failed}</b>` : ''} · Claude API 今日 <b>${usd(d.api.today)}</b>`;
+  const nBad = d.calls.filter(c => !c.probe && (c.state === 'waiting' || needsLook(c))).length;
+  $('#bad-n').textContent = nBad ? ' ' + nBad : '';
   renderCards(d);
   renderOverview(d);
   renderCalls(d);
@@ -513,6 +538,7 @@ $('#seg').addEventListener('click', e => {
   render();
 });
 $('#calls').addEventListener('click', e => {
+  if (e.target.closest('button')) return;
   const main = e.target.closest('.row-main'); if (!main) return;
   const row = main.parentElement, id = row.dataset.id;
   state.open.has(id) ? state.open.delete(id) : state.open.add(id);
@@ -524,6 +550,31 @@ $('#overview').addEventListener('click', e => {
   state.agent = state.agent === row.dataset.agent ? null : row.dataset.agent;
   renderOverview(state.data); renderCalls(state.data);
   if (state.agent) $('#calls-block').scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
+async function dismissApi(body) {
+  const r = await fetch('/api/dismiss', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const res = await r.json();
+  if (!r.ok) throw new Error(res.error || r.status);
+  await load();
+  return res;
+}
+let undoTimer = null;
+function offerUndo(ids) {
+  clearTimeout(undoTimer);
+  state.undo = ids.length ? { ids } : null;
+  render();
+  undoTimer = setTimeout(() => { state.undo = null; render(); }, 12000);
+}
+$('#calls').addEventListener('click', async e => {
+  const el = e.target.closest('[data-dismiss],[data-restore],[data-clear-all],[data-undo],[data-toggle-dismissed]');
+  if (!el) return;
+  try {
+    if (el.dataset.dismiss) offerUndo((await dismissApi({ ids: [el.dataset.dismiss] })).added);
+    else if (el.dataset.restore) await dismissApi({ restore: [el.dataset.restore] });
+    else if (el.hasAttribute('data-clear-all')) offerUndo((await dismissApi({ all_bad: true })).added);
+    else if (el.hasAttribute('data-undo')) { const ids = state.undo?.ids || []; clearTimeout(undoTimer); state.undo = null; await dismissApi({ restore: ids }); }
+    else if (el.hasAttribute('data-toggle-dismissed')) { state.showDismissed = !state.showDismissed; renderCalls(state.data); }
+  } catch (err) { alert('操作失败：' + err.message); }
 });
 $('#calls').addEventListener('click', e => {
   if (e.target.closest('#clear-agent')) { state.agent = null; renderOverview(state.data); renderCalls(state.data); }

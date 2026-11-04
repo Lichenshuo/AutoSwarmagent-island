@@ -12,6 +12,12 @@ The window is fixed-size and switches between two modes:
 Expanding and collapsing are CSS transitions; the window itself never resizes.
 The window is a tool window: no taskbar button, no Alt-Tab entry, never takes focus.
 """
+import sys
+
+if sys.platform != "win32":
+    sys.exit("Agent Island's floating island only runs on Windows. The dashboard alone works anywhere: "
+             "python app/server.py --open")
+
 import ctypes
 import json
 import subprocess
@@ -24,7 +30,10 @@ import webbrowser
 from ctypes import wintypes
 from pathlib import Path
 
-import webview
+try:
+    import webview
+except ImportError:
+    webview = None
 
 import server
 
@@ -32,7 +41,6 @@ WIN_W, WIN_H = 640, 600          # logical px; pywebview scales to physical itse
 COLLAPSE_DELAY = 0.28            # pointer must stay out this long before collapsing
 STARTUP_TIMEOUT = 20             # seconds a child gets to start answering before it is restarted
 POS_FILE = server.DATA / "island-pos.json"
-DISMISSED_FILE = server.DATA / "island-dismissed.json"
 LOG_FILE = server.DATA / "island.log"
 KEY_RGB = 0x010101
 
@@ -119,12 +127,10 @@ class Api:
             self._window.destroy()
 
     def dismissed(self):
-        return server.read_json(DISMISSED_FILE) or []
+        return server.dismissed_ids()
 
     def dismiss(self, call_ids):
-        ids = sorted(set(self.dismissed()) | set(map(str, call_ids)))[-500:]
-        DISMISSED_FILE.write_text(json.dumps(ids), encoding="utf-8")
-        return ids
+        return server.set_dismissed(add=call_ids)
 
     def start_drag(self):
         # Follow the cursor while the left button is held. Polling the real button state
@@ -308,7 +314,25 @@ def supervise():
         time.sleep(2)
 
 
+def fatal(message):
+    """The island runs without a console, so a plain crash would be invisible: log it and show a dialog."""
+    try:
+        LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with open(LOG_FILE, "a", encoding="utf-8") as fh:
+            fh.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] FATAL {message}\n")
+    except OSError:
+        pass
+    try:
+        ctypes.windll.user32.MessageBoxW(None, message, "Agent Island", 0x10)
+    except Exception:
+        print(message, file=sys.stderr)
+    sys.exit(0)        # exit code 0: the supervisor must not restart-loop on a setup problem
+
+
 def main():
+    if webview is None:
+        fatal("缺少依赖 pywebview。请重新运行 install.ps1（它会装好依赖并检查环境）。\n\n"
+              "Missing dependency pywebview. Re-run install.ps1.")
     if "--child" not in sys.argv:
         supervise()
         return
@@ -324,7 +348,13 @@ def main():
     api._window = window
     window.events.before_show += lambda: prepare_window(window)
     threading.Thread(target=track_pointer, args=(window, api), daemon=True).start()
-    webview.start()
+    try:
+        webview.start(gui="edgechromium")    # the legacy IE engine would render the page broken
+    except Exception as exc:
+        log_error("webview.start")
+        fatal("无法启动 WebView2 窗口（灵动岛需要 Microsoft Edge WebView2 运行时）。\n"
+              "请安装：https://developer.microsoft.com/microsoft-edge/webview2/\n\n"
+              f"Cannot start the WebView2 window: {exc}")
 
 
 if __name__ == "__main__":

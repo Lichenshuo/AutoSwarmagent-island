@@ -11,7 +11,7 @@ A black pill pinned to the top of the screen (hover to expand, drag to move, dou
 
 ## Install (once)
 
-Needs Python 3.10+ (or `uv`) and the WebView2 runtime that ships with Microsoft Edge.
+Needs Windows 10/11, Python 3.10+ (or `uv`) and the Edge WebView2 runtime. `install.ps1` checks all of this and stops with a clear message when something fails. Git is optional: it only enables AutoSwarm (`requirements-autoswarm.txt`) and with it the delegation history.
 
 ```
 powershell -ExecutionPolicy Bypass -File "<skill>\install.ps1"            # add -Autostart to start at sign-in
@@ -36,6 +36,7 @@ Fetch `http://127.0.0.1:8765/api/data` (start `island.cmd` first if it is not ru
 - `summary`: counts for today, running, waiting and failed.
 - `calls[].usage`: `scope: "call"` means `tokens` / `cost` are what THIS round used (growth of the conversation's counter while it ran); `scope: "session"` means only the whole conversation's total was available. The same agent is reused for many rounds, so never read a call's session total as that call's cost.
 - `delegation`: `totals` (agents, calls, completed, failed, running, tokens, cost, today, `by_provider`) and `agents[]` grouped per sub-agent (name, rounds, completed/failed, tokens, last state/task). Use it to answer "how many sub-agents / how many tokens have I dispatched".
+- Anomalies: a call counts as an anomaly when `state` is failed / lost / cancelled, it was not re-dispatched afterwards (`superseded`) and the user did not clear it (`dismissed`). `summary.failed` and `delegation.*.failed` count only those; `delegation.*.failed_total` is the history. Clearing only hides records (the list is `data/island-dismissed.json`, shared by island and dashboard; AutoSwarm's own records are never touched): `POST /api/dismiss` with `{"ids":[...]}`, `{"all_bad":true}`, `{"restore":[...]}` or `{"restore_all":true}`.
 - `codex.tokens_today` / `codex.tokens_week`: Codex tokens (cache included) from its session counters.
 
 ## Quota sources

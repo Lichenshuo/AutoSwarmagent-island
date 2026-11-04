@@ -20,6 +20,8 @@ A Dynamic-Island style status pill for Windows plus a local dashboard, for peopl
 - 最近完成
 - 任务结束时胶囊会弹出 5 秒提示
 
+**异常清理**：仪表盘「派活记录」里，「异常」按钮带待处理条数；每条异常右侧有「忽略」，上方有「清理全部异常」，清理后 12 秒内可「撤销」，「显示已忽略」可以找回并「恢复」。同一个 agent 后来又派过活的失败算「已重派」，不再算待处理。忽略只是不再显示，AutoSwarm 的记录不会被改动；灵动岛和仪表盘共用同一份忽略列表。
+
 **交互**：悬停展开，拖动移动位置（会记住），双击回到屏幕顶部正中。后台运行，不占任务栏、不抢焦点，周围区域鼠标可直接穿透。
 
 **仪表盘**（`http://127.0.0.1:8765/`）：额度与花费（Claude / Codex 都有今日、近 7 天 token）、**副 agent 总览**（派过多少个 agent、派活多少次、累计 token 和花费，以及每个 agent 跑了几轮、完成 / 异常、耗了多少 token，点一个 agent 只看它的记录）、按天分组的完整派活记录（可展开看任务与结果，每条显示的是**这一轮**用的 token，不是整个会话的累计）、主 agent 会话与 token 用量。
@@ -28,7 +30,13 @@ A Dynamic-Island style status pill for Windows plus a local dashboard, for peopl
 
 ## 安装
 
-需要 Windows 10/11、Python 3.10+（或 [uv](https://docs.astral.sh/uv/)），以及 Edge 自带的 WebView2。
+需要：
+- **Windows 10 / 11**（灵动岛用到 Windows 窗口接口，macOS / Linux 只能单独跑仪表盘：`python app/server.py --open`）
+- **Python 3.10+**（或 [uv](https://docs.astral.sh/uv/)，装了 uv 就不用另装 Python）
+- **Edge WebView2 运行时**（Win 11 自带，Win 10 通常随 Edge 已有；没有的话安装脚本会提示）
+- 可选：**Git**（用来装 AutoSwarm，才有派活记录；没有就只缺这一块）
+
+没装的东西都会在安装脚本最后明确提示，装失败会直接停下来说原因，不会假装成功。
 
 作为 Claude Code skill 安装（推荐，之后可以直接对 Claude 说"打开灵动岛""我还剩多少额度"）：
 
@@ -40,6 +48,14 @@ powershell -ExecutionPolicy Bypass -File "$HOME\.claude\skills\agent-island\inst
 `-Autostart` 表示登录 Windows 后自动启动，去掉即只安装；`install.ps1 -NoAutostart` 可取消自启。
 
 之后双击 `island.cmd` 启动灵动岛，`dashboard.cmd` 同时打开仪表盘。
+
+**第一次打开你会看到什么**：它只读你电脑上已有的东西，什么都没有就显示空状态，不会报错。
+- 没装 / 没登录 Claude Code：Claude 额度显示"终端没登录"，在终端运行一次 `claude auth login` 即可
+- 没用过 Codex：Codex 额度为空，用过一次就有
+- 没装 AutoSwarm：没有派活记录和副 agent 总览，额度和 API 花费照常
+- API 余额：第一次需要点灵动岛上的 API 一栏填一次 Console 里的余额（见下）
+
+**出问题时**：灵动岛没有窗口、没有控制台，启动失败会弹窗说明，细节在 `data\island.log`。
 
 ## 数据来源
 
