@@ -45,8 +45,8 @@ powershell -ExecutionPolicy Bypass -File "$HOME\.claude\skills\agent-island\inst
 
 | 内容 | 来源 |
 |---|---|
-| Claude 额度 | 终端里已登录的 Claude Code（`claude auth login`）→ 实时；否则读 Claude 桌面端本地的用量采样（不定期更新，会标注采样时间） |
-| Codex 额度 | `~/.codex/sessions` 里最新的 `rate_limits` |
+| Claude 额度 | 终端里已登录的 Claude Code（`claude auth login`）→ 实时，登录令牌快过期时灵动岛会自动拉起一个无界面的 Claude Code 去续期（不发消息，不耗额度，用 Claude Code 自己的续期和锁，不会挤掉终端登录）；否则读 Claude 桌面端本地的用量采样（不定期更新，会标注采样时间） |
+| Codex 额度 | 每 3 分钟向 Codex 自己的 `codex app-server` 问一次当前额度（登录由 Codex 自己处理）；问不到时退回 `~/.codex/sessions` 里最新的 `rate_limits`，那只在 Codex 运行时才更新 |
 | Claude API 花费 | OpenCode 数据库中每条消息的 `cost`；默认 `~/.local/share/opencode/opencode.db`，可在 `config.json` 里追加（见 `config.example.json`），v1 / v2 自动识别 |
 | Claude API 余额 | 有管理员密钥（`anthropic_admin_key`）时用官方 Cost API，精确；否则为"上次校准的余额 − 之后本地花费 × 修正系数"的估算 |
 | 派活记录 | AutoSwarm 的调用记录（含 Claude 桌面端 MSIX 重定向目录），状态由 AutoSwarm 自己判定 |

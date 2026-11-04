@@ -233,7 +233,7 @@ function quotaLine(side, name, w) {
 function quotaTile(name, info, letter) {
   const q = quota(info);
   const plan = info?.plan ? ' · ' + String(info.plan).replace(/^./, ch => ch.toUpperCase()) : '';
-  const why = { token_expired: '终端登录已过期，实时额度停了', no_login: '终端没登录，实时额度读不到', rate_limited: '额度接口被限流，暂用旧数据' }[info?.live_error];
+  const why = { token_expired: info?.renew?.ok === false ? '自动续期失败，请在终端 claude auth login' : '终端登录已过期，正在自动续期', no_login: '终端没登录，实时额度读不到', rate_limited: '额度接口被限流，暂用旧数据', codex_missing: '没找到 codex 命令行，额度可能不是最新', codex_no_answer: 'Codex 实时读取失败，用的是上次运行的记录', codex_no_windows: 'Codex 没返回额度，用的是上次运行的记录' }[info?.live_error] || (info?.live_error?.startsWith('codex') ? 'Codex 实时读取失败，用的是上次运行的记录' : info?.live_error?.startsWith('http_') ? '额度接口返回 ' + info.live_error.slice(5) + '，暂用旧数据' : null);
   const warn = why ? `<div class="num" style="font-size:11px;color:var(--orange);margin-top:2px;white-space:nowrap" title="${esc(info.live_error)}">${why}</div>` : '';
   return `<div class="tile">${splitRing(q, letter, 46)}<div style="min-width:0">
     <div class="tile-k">${name}${esc(plan)}</div>${quotaLine('left', '5 小时', q.short)}${quotaLine('right', '本周', q.long)}${warn}</div></div>`;

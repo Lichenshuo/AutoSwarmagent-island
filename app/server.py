@@ -6,7 +6,9 @@ import argparse
 import copy
 import json
 import os
+import shutil
 import sqlite3
+import subprocess
 import sys
 import threading
 import time
@@ -141,6 +143,134 @@ def codex_snapshot():
             "reached": rl.get("rate_limit_reached_type"),
         }
     return sessions, limits
+
+
+# ── Codex live quota, asked from Codex itself ────────────────────────────
+# Session files only change while Codex runs, so the numbers go stale. `codex app-server` is Codex's own
+# JSON-RPC-over-stdio interface; it handles its own login and answers account/rateLimits/read.
+
+CODEX_LIVE_EVERY = 180
+_codex_live = {"at": 0.0, "busy": False, "info": None, "error": None, "ok_at": None}
+_codex_live_lock = threading.Lock()
+
+
+def codex_exe():
+    config = read_json(CONFIG_FILE) or {}
+    for cand in (config.get("codex_exe"), shutil.which("codex"), LOCAL / "Programs/OpenAI/Codex/bin/codex.exe",
+                 HOME / ".codex/bin/codex.exe", HOME / ".codex/bin/codex"):
+        if cand and Path(cand).exists():
+            return str(cand)
+    return None
+
+
+def _num(*values):
+    for v in values:
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            return float(v)
+    return None
+
+
+def _ts(v):
+    if isinstance(v, (int, float)):
+        return float(v) / 1000 if v > 1e12 else float(v)
+    return iso_to_ts(v) if isinstance(v, str) else None
+
+
+def parse_codex_rate_limits(result):
+    """Normalise an account/rateLimits/read result (several field spellings exist across versions)."""
+    if not isinstance(result, dict):
+        return None
+    snap = None
+    by_id = result.get("rateLimitsByLimitId") or result.get("rate_limits_by_limit_id")
+    if isinstance(by_id, dict) and by_id:
+        snap = by_id.get("codex") or next((v for v in by_id.values() if isinstance(v, dict) and (v.get("primary") or v.get("secondary"))), None)
+    snap = snap or result.get("rateLimits") or result.get("rate_limits") or result
+    if not isinstance(snap, dict):
+        return None
+    windows = []
+    for key in ("primary", "secondary"):
+        w = snap.get(key)
+        if not isinstance(w, dict):
+            continue
+        used = _num(w.get("usedPercent"), w.get("used_percent"), w.get("usedPercentage"), w.get("used_percentage"))
+        if used is None:     # e.g. a "premium" family with empty windows
+            continue
+        minutes = _num(w.get("windowDurationMins"), w.get("window_minutes"), w.get("windowMinutes"))
+        if minutes is None and _num(w.get("limit_window_seconds"), w.get("windowSeconds")):
+            minutes = _num(w.get("limit_window_seconds"), w.get("windowSeconds")) / 60
+        windows.append({"key": key, "used": used, "window_minutes": int(minutes) if minutes else None,
+                        "resets_at": _ts(w.get("resetsAt") if w.get("resetsAt") is not None else w.get("resets_at"))})
+    if not windows:
+        return None
+    return {"plan": snap.get("planType") or snap.get("plan_type") or result.get("planType"), "windows": windows,
+            "reached": snap.get("rateLimitReachedType") or snap.get("rate_limit_reached_type")}
+
+
+def _codex_fetch(debug=None):
+    exe = codex_exe()
+    if not exe:
+        return None, "codex_missing"
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    proc = subprocess.Popen([exe, "app-server"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                            cwd=str(HOME), creationflags=flags)
+    timer = threading.Timer(25, proc.kill)
+    timer.start()
+    try:
+        send = [{"method": "initialize", "id": 1, "params": {"clientInfo": {"name": "agent-island", "title": "Agent Island", "version": "1.0"}}},
+                {"method": "initialized"},
+                {"method": "account/rateLimits/read", "id": 2}]
+        proc.stdin.write(("\n".join(json.dumps(m) for m in send) + "\n").encode())
+        proc.stdin.flush()
+        for raw in proc.stdout:
+            try:
+                msg = json.loads(raw)
+            except ValueError:
+                continue
+            if msg.get("id") != 2:
+                continue
+            if debug is not None:
+                debug["raw_keys"] = sorted((msg.get("result") or {}).keys()) if isinstance(msg.get("result"), dict) else None
+            if msg.get("error"):
+                return None, "codex_rpc: " + str((msg["error"] or {}).get("message") if isinstance(msg["error"], dict) else msg["error"])[:80]
+            info = parse_codex_rate_limits(msg.get("result"))
+            return (info, None) if info else (None, "codex_no_windows")
+        return None, "codex_no_answer"
+    finally:
+        timer.cancel()
+        try:
+            proc.stdin.close()
+        except OSError:
+            pass
+        proc.kill()
+
+
+def _codex_live_refresh():
+    try:
+        info, error = _codex_fetch()
+    except Exception as exc:
+        info, error = None, "codex_failed: " + str(exc)[:60]
+    with _codex_live_lock:
+        _codex_live.update(busy=False, error=error)
+        if info:
+            _codex_live.update(info=info, ok_at=time.time())
+
+
+def codex_with_live(limits):
+    """Merge Codex's own live reading (refreshed in the background, never blocks) over the session-file one."""
+    with _codex_live_lock:
+        if not _codex_live["busy"] and time.time() - _codex_live["at"] > CODEX_LIVE_EVERY:
+            _codex_live.update(at=time.time(), busy=True)
+            threading.Thread(target=_codex_live_refresh, daemon=True).start()
+        live, ok_at, error = _codex_live["info"], _codex_live["ok_at"], _codex_live["error"]
+    out = dict(limits) if limits else {"plan": None, "captured_at": None, "windows": [], "reached": None}
+    if live and ok_at and time.time() - ok_at < 3600 and ok_at >= (out.get("captured_at") or 0):
+        out.update(plan=live.get("plan") or out.get("plan"), captured_at=ok_at, windows=live["windows"],
+                   reached=live.get("reached"), source="live")
+        error = None
+    else:
+        out["source"] = "sessions"
+    out["live_error"] = error
+    return out
 
 
 # ── Claude Code (main agent) ─────────────────────────────────────────────
@@ -294,7 +424,7 @@ def _oauth_usage():
         with urllib.request.urlopen(req, timeout=8) as response:
             data = json.loads(response.read())
     except urllib.error.HTTPError as exc:
-        return {"error": {401: "token_expired", 403: "token_expired", 429: "rate_limited"}.get(exc.code, f"http_{exc.code}")}
+        return {"error": {401: "token_expired", 429: "rate_limited"}.get(exc.code, f"http_{exc.code}")}
     except Exception as exc:
         return {"error": "network: " + str(exc)[:80]}
     windows = []
@@ -312,8 +442,129 @@ _oauth_next = [0.0]  # earliest time for the next request
 
 _oauth_error = {"error": None, "at": 0.0}
 
+# ── Renewing the terminal login through Claude Code itself ───────────────
+# The usage endpoint needs the OAuth token in ~/.claude/.credentials.json, which only a running
+# Claude Code renews. When it is about to expire we start a short-lived headless Claude Code
+# process (no prompt is sent, so it costs no quota); it refreshes the token with its own
+# cross-process lock, so the terminal's login is never fought over. We only watch the file's
+# expiry to see whether it worked, and remember which method did.
+
+RENEW_FILE = DATA / "claude-renew.json"
+RENEW_AHEAD = 20 * 60          # renew when the token has less than this left
+RENEW_RETRY = 10 * 60          # ...at most this often
+_renew_lock = threading.Lock()
+_renew_state = {"at": 0.0, "ok": None, "method": None, "error": None}
+
+
+def claude_exe():
+    config = read_json(CONFIG_FILE) or {}
+    for cand in (config.get("claude_exe"), shutil.which("claude"), HOME / ".local/bin/claude.exe", HOME / ".local/bin/claude"):
+        if cand and Path(cand).exists():
+            return str(cand)
+    return None
+
+
+def token_expiry():
+    exp = ((read_json(CLAUDE_CREDENTIALS) or {}).get("claudeAiOauth") or {}).get("expiresAt")
+    if not isinstance(exp, (int, float)):
+        return None
+    return exp / 1000 if exp > 1e12 else float(exp)
+
+
+def _clean_env():
+    # Claude Code refuses some modes when it thinks it runs inside another Claude Code session.
+    return {k: v for k, v in os.environ.items() if k not in ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SSE_PORT")}
+
+
+def _wait_expiry_moves(before, timeout, proc=None):
+    end = time.time() + timeout
+    while time.time() < end:
+        exp = token_expiry()
+        if exp and (before is None or exp > before + 60):
+            return exp
+        if proc is not None and proc.poll() is not None:
+            exp = token_expiry()
+            return exp if exp and (before is None or exp > before + 60) else None
+        time.sleep(0.5)
+    return None
+
+
+def renew_claude_token(verbose=False):
+    """Ask Claude Code to renew the login token. Returns {"ok", "method", "before", "after", "tried": [...]}."""
+    if not _renew_lock.acquire(blocking=False):
+        return {"ok": None, "error": "already running"}
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    tried, result = [], None
+    try:
+        exe = claude_exe()
+        before = token_expiry()
+        if not exe:
+            result = {"ok": False, "error": "no_claude_cli", "before": before, "tried": tried}
+            return result
+        methods = ["status", "headless"]
+        remembered = (read_json(RENEW_FILE) or {}).get("method")
+        if remembered in methods:
+            methods.remove(remembered)
+            methods.insert(0, remembered)
+        for method in methods:
+            started = time.time()
+            try:
+                if method == "status":
+                    subprocess.run([exe, "auth", "status"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                   stderr=subprocess.DEVNULL, cwd=str(HOME), env=_clean_env(), timeout=25, creationflags=flags)
+                    after = _wait_expiry_moves(before, 3)
+                else:
+                    proc = subprocess.Popen([exe, "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose"],
+                                            stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                            cwd=str(HOME), env=_clean_env(), creationflags=flags)
+                    try:
+                        proc.stdin.write((json.dumps({"type": "control_request", "request_id": "island-init",
+                                                      "request": {"subtype": "initialize"}}) + "\n").encode())
+                        proc.stdin.flush()
+                        after = _wait_expiry_moves(before, 30, proc)
+                    finally:
+                        try:
+                            proc.stdin.close()
+                        except OSError:
+                            pass
+                        proc.kill()
+                tried.append({"method": method, "moved": bool(after), "seconds": round(time.time() - started, 1)})
+            except Exception as exc:
+                tried.append({"method": method, "moved": False, "error": str(exc)[:80]})
+                after = None
+            if after:
+                DATA.mkdir(parents=True, exist_ok=True)
+                RENEW_FILE.write_text(json.dumps({"method": method, "at": time.time()}), encoding="utf-8")
+                result = {"ok": True, "method": method, "before": before, "after": after, "tried": tried}
+                return result
+            if before is not None and before > time.time() + 60:   # token was fine all along; nothing to renew
+                result = {"ok": True, "method": None, "before": before, "after": before, "tried": tried, "note": "token still valid"}
+                return result
+        result = {"ok": False, "error": "not_renewed", "before": before, "tried": tried}
+        return result
+    finally:
+        if result is not None:
+            _renew_state.update(at=time.time(), ok=result.get("ok"), method=result.get("method"), error=result.get("error"))
+        _renew_lock.release()
+
+
+def maybe_renew():
+    exp = token_expiry()
+    if exp is None and not CLAUDE_CREDENTIALS.exists():
+        return
+    if exp is not None and exp - time.time() > RENEW_AHEAD:
+        return
+    if time.time() - _renew_state["at"] < RENEW_RETRY:
+        return
+    _renew_state["at"] = time.time()   # claim the slot
+    renew_claude_token()
+
 
 def _refresh_oauth():
+    try:
+        maybe_renew()
+    except Exception:
+        pass
     result = _oauth_usage()
     with _oauth_lock:
         if result and result.get("windows"):
@@ -324,7 +575,7 @@ def _refresh_oauth():
         else:
             err = (result or {}).get("error") or "empty"
             _oauth_error.update(error=err, at=time.time())
-            _oauth_next[0] = time.time() + (600 if err == "rate_limited" else 300 if err in ("token_expired", "no_login") else 120)
+            _oauth_next[0] = time.time() + (600 if err == "rate_limited" else 300 if err == "no_login" else 120)
 
 
 def claude_live():
@@ -371,6 +622,7 @@ def claude_quota():
     best = dict(best)
     # Tell the UI why the live reading is not being used (expired login, rate limit, ...).
     best["live_error"] = _oauth_error["error"] if best.get("source") != "oauth" or _oauth_error["error"] else None
+    best["renew"] = {"ok": _renew_state["ok"], "error": _renew_state["error"], "at": _renew_state["at"] or None}
     return best
 
 
@@ -410,6 +662,7 @@ def claude_snapshot():
         "captured_at": quota["captured_at"],
         "quota_source": quota["source"],
         "live_error": quota.get("live_error"),
+        "renew": quota.get("renew"),
         "windows": quota["windows"],
         "tokens_today": sum(f.get("days", {}).get(today, 0) for f in files),
         "tokens_week": sum(f.get("days", {}).get(d, 0) for f in files for d in week),
@@ -446,6 +699,13 @@ def quota_debug():
         out["desktop_samples_latest3"] = "no Claude-Data folder found"
     status = read_json(CLAUDE_STATUS)
     out["statusline"] = ({"captured": iso(status.get("captured_at")), "rate_limits": status.get("rate_limits")} if status else None)
+    cdebug = {}
+    info, err = _codex_fetch(cdebug) if codex_exe() else (None, "codex_missing")
+    out["codex_live"] = {"exe": codex_exe(), "error": err, "response_keys": cdebug.get("raw_keys"),
+                         "windows": {w["key"]: {"used_pct": w["used"], "minutes": w["window_minutes"], "resets_at": iso(w["resets_at"])} for w in (info or {}).get("windows", [])},
+                         "plan": (info or {}).get("plan")}
+    sess = codex_snapshot()[1]
+    out["codex_session_files"] = ({"captured": iso(sess["captured_at"]), "windows": {w["key"]: {"used_pct": w["used"], "resets_at": iso(w["resets_at"])} for w in sess["windows"]}} if sess else None)
     picked = claude_quota()
     out["island_uses"] = {"source": picked.get("source"), "captured": iso(picked.get("captured_at")),
                           "windows": {w["key"]: {"used_pct": w["used"], "resets_at": iso(w["resets_at"])} for w in picked["windows"]}}
@@ -884,6 +1144,7 @@ BAD_STATES = ("failed", "lost", "cancelled", "unknown")
 def snapshot():
     # Quotas and spend change slowly; delegation state is read fresh every time.
     codex_sessions, codex_limits = cached("codex", 20, codex_snapshot)
+    codex_limits = codex_with_live(codex_limits)
     api, opencode_sessions = cached("api", 20, api_snapshot)
     calls = calls_snapshot(codex_sessions, opencode_sessions)
     today = local_day(time.time())
@@ -977,9 +1238,17 @@ def main():
                         help="record the API balance the Console shows now (USD) and exit")
     parser.add_argument("--month", type=float, help="with --calibrate: this month's spend shown in the Console")
     parser.add_argument("--total", type=float, help="with --calibrate: total credit ever topped up")
+    parser.add_argument("--renew-token", action="store_true",
+                        help="ask Claude Code to renew the terminal login token now and report which method worked")
     parser.add_argument("--quota-debug", action="store_true",
                         help="print where the Claude 5-hour / weekly numbers come from (no secrets) and exit")
     args = parser.parse_args()
+    if args.renew_token:
+        iso = lambda ts: datetime.fromtimestamp(ts, timezone.utc).astimezone().strftime("%m-%d %H:%M:%S") if ts else None
+        r = renew_claude_token()
+        r["before"], r["after"] = iso(r.get("before")), iso(r.get("after"))
+        print(json.dumps(r, ensure_ascii=False, indent=2))
+        return 0
     if args.quota_debug:
         return quota_debug()
     if args.calibrate is not None:
