@@ -209,34 +209,55 @@ def _ts(v):
     return iso_to_ts(v) if isinstance(v, str) else None
 
 
-def parse_codex_rate_limits(result):
-    """Normalise an account/rateLimits/read result (several field spellings exist across versions)."""
-    if not isinstance(result, dict):
-        return None
-    snap = None
-    by_id = result.get("rateLimitsByLimitId") or result.get("rate_limits_by_limit_id")
-    if isinstance(by_id, dict) and by_id:
-        snap = by_id.get("codex") or next((v for v in by_id.values() if isinstance(v, dict) and (v.get("primary") or v.get("secondary"))), None)
-    snap = snap or result.get("rateLimits") or result.get("rate_limits") or result
-    if not isinstance(snap, dict):
-        return None
+def _codex_windows(snap):
     windows = []
     for key in ("primary", "secondary"):
         w = snap.get(key)
         if not isinstance(w, dict):
             continue
         used = _num(w.get("usedPercent"), w.get("used_percent"), w.get("usedPercentage"), w.get("used_percentage"))
-        if used is None:     # e.g. a "premium" family with empty windows
+        if used is None:     # e.g. a family with empty windows
             continue
         minutes = _num(w.get("windowDurationMins"), w.get("window_minutes"), w.get("windowMinutes"))
         if minutes is None and _num(w.get("limit_window_seconds"), w.get("windowSeconds")):
             minutes = _num(w.get("limit_window_seconds"), w.get("windowSeconds")) / 60
         windows.append({"key": key, "used": used, "window_minutes": int(minutes) if minutes else None,
                         "resets_at": _ts(w.get("resetsAt") if w.get("resetsAt") is not None else w.get("resets_at"))})
-    if not windows:
+    return windows
+
+
+def parse_codex_rate_limits(result):
+    """Normalise an account/rateLimits/read result. Field spellings differ across Codex versions and plans
+    (some plans have no 5-hour window at all), so every candidate snapshot is tried and the first with a
+    real window wins."""
+    if not isinstance(result, dict):
         return None
-    return {"plan": snap.get("planType") or snap.get("plan_type") or result.get("planType"), "windows": windows,
-            "reached": snap.get("rateLimitReachedType") or snap.get("rate_limit_reached_type")}
+    by_id = result.get("rateLimitsByLimitId") or result.get("rate_limits_by_limit_id")
+    cands = []
+    if isinstance(by_id, dict) and isinstance(by_id.get("codex"), dict):
+        cands.append(by_id["codex"])
+    cands += [result[k] for k in ("rateLimits", "rate_limits") if isinstance(result.get(k), dict)]
+    if isinstance(by_id, dict):
+        cands += [v for k, v in by_id.items() if k != "codex" and isinstance(v, dict)]
+    cands.append(result)
+    plan = next((c.get(k) for c in cands for k in ("planType", "plan_type") if isinstance(c.get(k), str)), None)
+    for snap in cands:
+        windows = _codex_windows(snap)
+        if windows:
+            return {"plan": plan, "windows": windows,
+                    "reached": snap.get("rateLimitReachedType") or snap.get("rate_limit_reached_type")}
+    return None
+
+
+def _shape(v, depth=0):
+    """The structure of a response with every string replaced (ids, emails), numbers and flags kept."""
+    if isinstance(v, dict):
+        return {k: _shape(x, depth + 1) for k, x in list(v.items())[:24]} if depth < 5 else "{...}"
+    if isinstance(v, list):
+        return [_shape(x, depth + 1) for x in v[:3]]
+    if isinstance(v, str):
+        return v if (len(v) <= 12 and v.replace("_", "").replace("-", "").isalnum()) else "<str>"
+    return v
 
 
 def _codex_fetch(debug=None):
@@ -263,6 +284,7 @@ def _codex_fetch(debug=None):
                 continue
             if debug is not None:
                 debug["raw_keys"] = sorted((msg.get("result") or {}).keys()) if isinstance(msg.get("result"), dict) else None
+                debug["shape"] = _shape(msg.get("result"))
             if msg.get("error"):
                 return None, "codex_rpc: " + str((msg["error"] or {}).get("message") if isinstance(msg["error"], dict) else msg["error"])[:80]
             info = parse_codex_rate_limits(msg.get("result"))
@@ -278,12 +300,13 @@ def _codex_fetch(debug=None):
 
 
 def _codex_live_refresh():
+    detail = {}
     try:
-        info, error = _codex_fetch()
+        info, error = _codex_fetch(detail)
     except Exception as exc:
         info, error = None, "codex_failed: " + str(exc)[:60]
     with _codex_live_lock:
-        _codex_live.update(busy=False, error=error)
+        _codex_live.update(busy=False, error=error, detail=detail.get("shape") if error else None)
         if info:
             _codex_live.update(info=info, ok_at=time.time())
 
@@ -295,6 +318,7 @@ def codex_with_live(limits):
             _codex_live.update(at=time.time(), busy=True)
             threading.Thread(target=_codex_live_refresh, daemon=True).start()
         live, ok_at, error = _codex_live["info"], _codex_live["ok_at"], _codex_live["error"]
+        detail = _codex_live.get("detail")
     out = dict(limits) if limits else {"plan": None, "captured_at": None, "windows": [], "reached": None}
     if live and ok_at and time.time() - ok_at < 3600 and ok_at >= (out.get("captured_at") or 0):
         out.update(plan=live.get("plan") or out.get("plan"), captured_at=ok_at, windows=live["windows"],
@@ -303,6 +327,7 @@ def codex_with_live(limits):
     else:
         out["source"] = "sessions"
     out["live_error"] = error
+    out["live_error_detail"] = json.dumps(detail, ensure_ascii=False)[:600] if error and detail else None
     return out
 
 
@@ -737,7 +762,7 @@ def quota_debug():
     out["statusline"] = ({"captured": iso(status.get("captured_at")), "rate_limits": status.get("rate_limits")} if status else None)
     cdebug = {}
     info, err = _codex_fetch(cdebug) if codex_exe() else (None, "codex_missing")
-    out["codex_live"] = {"exe": codex_exe(), "error": err, "response_keys": cdebug.get("raw_keys"),
+    out["codex_live"] = {"exe": codex_exe(), "error": err, "response_keys": cdebug.get("raw_keys"), "response_shape": cdebug.get("shape"),
                          "windows": {w["key"]: {"used_pct": w["used"], "minutes": w["window_minutes"], "resets_at": iso(w["resets_at"])} for w in (info or {}).get("windows", [])},
                          "plan": (info or {}).get("plan")}
     sess = codex_snapshot()[1]
@@ -756,8 +781,19 @@ def utc_day(ts):
     return datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%d")
 
 
+PROVIDER_NAMES = {"anthropic": "Claude", "openai": "OpenAI / Codex", "google": "Gemini", "opencode": "OpenCode Zen",
+                  "openrouter": "OpenRouter", "github-copilot": "Copilot", "xai": "xAI", "deepseek": "DeepSeek",
+                  "mistral": "Mistral", "groq": "Groq", "azure": "Azure OpenAI", "amazon-bedrock": "Bedrock"}
+
+
+def provider_name(pid):
+    return PROVIDER_NAMES.get(pid) or str(pid).replace("-", " ").title()
+
+
 def api_snapshot(events_only=False):
-    """Local Claude API spend. events_only=True returns just [(ts, cost), ...] without billing."""
+    """Local API spend per provider (from OpenCode's records). The top-level numbers are Claude's (anthropic).
+
+    events_only: True -> anthropic's [(ts, cost), ...]; a provider id -> that provider's; no billing is computed."""
     now = time.time()
     today = utc_day(now)
     week = {utc_day(now - i * 86400) for i in range(7)}
@@ -766,6 +802,13 @@ def api_snapshot(events_only=False):
     daily = {utc_day(now - i * 86400): 0.0 for i in range(14)}
     sources, sessions, events = [], {}, []
     oc_events = {}   # session id -> [(ts, cumulative tokens, cumulative cost)]
+    pstats = {}      # provider id -> {"stat": totals, "daily": {...}, "events": [(ts, cost)]}
+
+    def per_provider(pid, ts, cost):
+        b = pstats.setdefault(pid, {"stat": {"today": 0.0, "week": 0.0, "d30": 0.0, "month": 0.0, "total": 0.0},
+                                    "daily": {utc_day(now - i * 86400): 0.0 for i in range(14)}, "events": []})
+        _add_cost(b["stat"], b["daily"], cost, ts, today, week, d30, month)
+        b["events"].append((ts, cost))
 
     def note(sid, ts, o):
         if not sid:
@@ -797,6 +840,8 @@ def api_snapshot(events_only=False):
                     o = json.loads(data)
                     if o.get("role") == "assistant":
                         note(msg_sid, created / 1000, o)
+                        if o.get("providerID"):
+                            per_provider(o["providerID"], created / 1000, o.get("cost") or 0)
                     if o.get("role") != "assistant" or o.get("providerID") != "anthropic":
                         continue
                     _add_cost(src, daily, o.get("cost") or 0, created / 1000, today, week, d30, month)
@@ -813,6 +858,8 @@ def api_snapshot(events_only=False):
                 for created, data, msg_sid in rows:
                     o = json.loads(data)
                     note(msg_sid, created / 1000, o)
+                    if (o.get("model") or {}).get("providerID"):
+                        per_provider(o["model"]["providerID"], created / 1000, o.get("cost") or 0)
                     if (o.get("model") or {}).get("providerID") != "anthropic":
                         continue
                     _add_cost(src, daily, o.get("cost") or 0, created / 1000, today, week, d30, month)
@@ -829,7 +876,8 @@ def api_snapshot(events_only=False):
         if sid in sessions:
             sessions[sid]["events"] = evs
     if events_only:
-        return events
+        pid = "anthropic" if events_only is True else events_only
+        return pstats.get(pid, {"events": []})["events"]
     total = {k: sum(s[k] for s in sources) for k in ("today", "week", "d30", "month", "total")}
     result = {"sources": sources, **total, "estimated": True,
               "daily": [{"day": d, "cost": round(v, 4)} for d, v in sorted(daily.items())]}
@@ -839,6 +887,20 @@ def api_snapshot(events_only=False):
         result.update({k: billing[k] for k in ("today", "week", "d30", "month")}, estimated=False,
                       daily=billing["daily"])
     result["billing"] = billing
+    # One entry per provider seen in OpenCode's records (Claude always first), each with its own balance estimate.
+    config = read_json(CONFIG_FILE) or {}
+    configured = set((config.get("provider_credit") or {}).keys())
+    providers = [{"id": "anthropic", "name": provider_name("anthropic"), "today": result["today"], "week": result["week"],
+                  "d30": result["d30"], "month": result["month"], "total": result["total"], "daily": result["daily"],
+                  "billing": billing}]
+    others = [(pid, b) for pid, b in pstats.items() if pid != "anthropic" and (b["stat"]["total"] > 0 or pid in configured)]
+    others += [(pid, None) for pid in configured if pid != "anthropic" and pid not in pstats]
+    for pid, b in sorted(others, key=lambda x: -(x[1]["stat"]["month"] if x[1] else 0)):
+        st = b["stat"] if b else {"today": 0.0, "week": 0.0, "d30": 0.0, "month": 0.0, "total": 0.0}
+        providers.append({"id": pid, "name": provider_name(pid), **{k: st[k] for k in ("today", "week", "d30", "month", "total")},
+                          "daily": [{"day": d, "cost": round(v, 4)} for d, v in sorted((b["daily"] if b else {}).items())],
+                          "billing": billing_snapshot(b["events"] if b else [], pid)})
+    result["providers"] = providers
     return result, sessions
 
 
@@ -873,15 +935,22 @@ def admin_daily_costs(key, since):
     return _cost_cache["days"]
 
 
-def billing_snapshot(events):
+def credit_cfg(config, pid):
+    """(credit dict, monthly limit) for a provider. Claude keeps the original top-level keys."""
+    if pid == "anthropic":
+        return config.get("api_credit") or {}, config.get("api_monthly_limit")
+    credit = (config.get("provider_credit") or {}).get(pid) or {}
+    return credit, credit.get("monthly_limit")
+
+
+def billing_snapshot(events, pid="anthropic"):
     config = read_json(CONFIG_FILE) or {}
-    credit = config.get("api_credit") or {}
-    limit = config.get("api_monthly_limit")
+    credit, limit = credit_cfg(config, pid)
     total = credit.get("total")
     now = time.time()
     month = utc_day(now)[:7]
     out = {"total": total, "monthly_limit": limit, "source": None}
-    key = config.get("anthropic_admin_key")
+    key = config.get("anthropic_admin_key") if pid == "anthropic" else None
     if key:
         days = admin_daily_costs(key, credit.get("since") or "2026-01-01")
         if days is not None:
@@ -924,11 +993,11 @@ FACTOR_RANGE = (1.0, 30.0)        # guard against nonsense factors from tiny sam
 FACTOR_MIN_LOCAL = 0.5            # need at least this much locally recorded spend to learn a factor
 
 
-def local_cost_events():
-    return api_snapshot(events_only=True)
+def local_cost_events(pid="anthropic"):
+    return api_snapshot(events_only=pid)
 
 
-def calibrate(balance, month_spend=None, total=None):
+def calibrate(balance, month_spend=None, total=None, provider="anthropic"):
     """Record what the Console shows right now and learn how much local costs undercount real billing.
 
     factor = (previous balance − new balance) ÷ local spend recorded in between, blended with the
@@ -939,15 +1008,15 @@ def calibrate(balance, month_spend=None, total=None):
         raise ValueError("balance must be >= 0")
     with _calibrate_lock:
         config = read_json(CONFIG_FILE) or {}
-        credit = dict(config.get("api_credit") or {})
+        credit = dict(credit_cfg(config, provider)[0])
         old = credit.get("snapshot") or {}
         old_factor = float(credit.get("factor") or 1.0)
         now = time.time()
-        summary = {"balance": balance, "factor": old_factor, "learned": None}
+        summary = {"provider": provider, "balance": balance, "factor": old_factor, "learned": None}
         at = iso_to_ts(old.get("at"))
         real = None
         if at and old.get("balance") is not None:
-            local = sum(cost for ts, cost in local_cost_events() if ts > at)
+            local = sum(cost for ts, cost in local_cost_events(provider) if ts > at)
             real = float(old["balance"]) - balance
             summary.update(local=round(local, 4), real=round(real, 4))
             if real < -0.01:
@@ -978,7 +1047,10 @@ def calibrate(balance, month_spend=None, total=None):
         history = list(credit.get("history") or [])
         history.append({**snap, "factor": credit.get("factor", 1.0)})
         credit["history"] = history[-20:]
-        config["api_credit"] = credit
+        if provider == "anthropic":
+            config["api_credit"] = credit
+        else:
+            config.setdefault("provider_credit", {})[provider] = credit
         tmp = CONFIG_FILE.with_suffix(".tmp")
         tmp.write_text(json.dumps(config, ensure_ascii=False, indent=2), "utf-8")
         os.replace(tmp, CONFIG_FILE)
@@ -1396,7 +1468,8 @@ class Handler(BaseHTTPRequestHandler):
                 kept = set_dismissed(add=add, remove=ids("restore"), clear=bool(body.get("restore_all")))
                 return self._send(json.dumps({"added": add, "dismissed": len(kept)}).encode(), "application/json; charset=utf-8")
             opt = lambda k: None if body.get(k) in (None, "") else float(body[k])
-            result = calibrate(float(body["balance"]), opt("month_spend"), opt("total"))
+            provider = str(body.get("provider") or "anthropic")[:60]
+            result = calibrate(float(body["balance"]), opt("month_spend"), opt("total"), provider)
             self._send(json.dumps(result, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
         except (KeyError, ValueError, TypeError) as exc:
             self._send(json.dumps({"error": f"bad input: {exc}"}).encode(), "application/json", 400)
@@ -1468,6 +1541,7 @@ def main():
                         help="record the API balance the Console shows now (USD) and exit")
     parser.add_argument("--month", type=float, help="with --calibrate: this month's spend shown in the Console")
     parser.add_argument("--total", type=float, help="with --calibrate: total credit ever topped up")
+    parser.add_argument("--provider", default="anthropic", help="with --calibrate: OpenCode provider id (anthropic, openai, ...)")
     parser.add_argument("--renew-token", action="store_true",
                         help="ask Claude Code to renew the terminal login token now and report which method worked")
     parser.add_argument("--quota-debug", action="store_true",
@@ -1482,7 +1556,7 @@ def main():
     if args.quota_debug:
         return quota_debug()
     if args.calibrate is not None:
-        print(json.dumps(calibrate(args.calibrate, args.month, args.total), ensure_ascii=False))
+        print(json.dumps(calibrate(args.calibrate, args.month, args.total, args.provider), ensure_ascii=False))
         return 0
     url = f"http://127.0.0.1:{args.port}/"
     server = start_server(args.port)

@@ -238,8 +238,8 @@ footer{margin:clamp(48px,8vw,80px) 0 40px;font-size:12px;color:var(--text-3);lin
 
   <dialog class="cal" id="cal">
     <form method="dialog" id="cal-form">
-      <h3>校准 API 余额</h3>
-      <p>打开 <a href="https://console.anthropic.com/settings/billing" target="_blank" rel="noopener">Console → Billing</a>，把上面显示的数字填进来。每次校准都会用"实际花掉的钱 ÷ 本地记录到的花费"自动更新修正系数，之后的估算会越来越准。</p>
+      <h3 id="cal-title">校准 API 余额</h3>
+      <p><span id="cal-where">打开对应平台的账单页</span>，把上面显示的数字填进来。每次校准都会用"实际花掉的钱 ÷ 本地记录到的花费"自动更新修正系数，之后的估算会越来越准。</p>
       <label>当前余额（Credit balance，美元）<input id="cal-balance" type="number" step="0.01" min="0" required inputmode="decimal" placeholder="例如 5.00"></label>
       <label>本月已用（可选，Usage 页的本月花费）<input id="cal-month" type="number" step="0.01" min="0" inputmode="decimal" placeholder="留空则自动推算"></label>
       <label>累计充值总额（可选，用于计算剩余比例）<input id="cal-total" type="number" step="0.01" min="0" inputmode="decimal" placeholder="例如 200"></label>
@@ -341,7 +341,7 @@ function subscriptionCard(name, role, plan, info, extra, emptyHint) {
     body = `<div class="big muted">—</div><div class="caption">${emptyHint}</div>`;
   }
   const why = { token_expired: info?.renew?.ok === false ? '自动续期失败：在终端运行 claude auth login' : '终端登录已过期，正在自动续期', no_login: '终端没登录：claude auth login', rate_limited: '额度接口被限流，暂用旧数据', codex_missing: '没找到 codex 命令行，额度可能不是最新' }[info?.live_error] || (info?.live_error?.startsWith('codex') ? 'Codex 实时读取失败，用的是上次运行的记录' : info?.live_error?.startsWith('http_') ? '额度接口返回 ' + info.live_error.slice(5) + '，暂用旧数据' : null);
-  const foot = (info?.captured_at ? `更新于 ${ago(info.captured_at)}` : '暂无额度数据') + (why ? ` · <span style="color:var(--heat)">${why}</span>` : '');
+  const foot = (info?.captured_at ? `更新于 ${ago(info.captured_at)}` : '暂无额度数据') + (why ? ` · <span style="color:var(--heat)" title="${esc((info.live_error || '') + (info.live_error_detail ? ' · ' + info.live_error_detail : ''))}">${why}</span>` : '');
   return `<div class="card">
     <div class="card-top"><div><div class="card-name">${name}</div><div class="role">${role}</div></div>
       ${plan ? `<span class="tag">${esc(PLAN[plan] || plan.replace(/^max/, 'Max') + ' 订阅')}</span>` : ''}</div>
@@ -349,33 +349,39 @@ function subscriptionCard(name, role, plan, info, extra, emptyHint) {
     <div class="card-foot"><div class="card-foot-inner"><span>${foot}</span></div></div></div>`;
 }
 
-function apiCard(api) {
-  const max = Math.max(...api.daily.map(d => d.cost), 0.01);
-  const bars = api.daily.map((d, i) => `<div class="bar ${i === api.daily.length - 1 ? 'today' : ''}" title="${d.day} ${usd(d.cost)}" style="height:${Math.max(4, d.cost / max * 100)}%"></div>`).join('');
-  const sources = api.sources.map(s => `${esc(s.label)} <span class="num">${usd(s.today)}</span>`).join(' · ');
+const BILLING_LINK = { anthropic: 'https://console.anthropic.com/settings/billing', openai: 'https://platform.openai.com/settings/organization/billing/overview' };
+/* One card per provider seen in OpenCode's records; Claude's numbers also carry the per-database breakdown. */
+function apiCard(api, p) {
+  p = p || { id: 'anthropic', name: 'Claude', ...api };
+  const main = p.id === 'anthropic';
+  const b = p.billing || {};
+  const daily = p.daily || [];
+  const max = Math.max(...daily.map(d => d.cost), 0.01);
+  const bars = daily.map((d, i) => `<div class="bar ${i === daily.length - 1 ? 'today' : ''}" title="${d.day} ${usd(d.cost)}" style="height:${Math.max(4, d.cost / max * 100)}%"></div>`).join('');
+  const sources = main ? api.sources.map(s => `${esc(s.label)} <span class="num">${usd(s.today)}</span>`).join(' · ') : '';
+  const who = main ? 'Claude' : p.name;
   return `<div class="card">
-    <div class="card-top"><div><div class="card-name">Claude API</div><div class="role">OpenCode 副 agent 与桌面端</div></div><span class="tag">按量计费</span></div>
-    ${api.billing?.remaining != null
-      ? `<div class="big num">${api.billing.source === 'estimate' ? '<small style="margin:0 2px 0 0">≈</small>' : ''}${usd(api.billing.remaining)}</div><div class="caption">剩余额度${api.billing.total ? '（共 ' + usd(api.billing.total) + '）' : ''} · ${api.billing.source === 'admin' ? 'Anthropic 账单' : calNote(api.billing)}</div>`
-      : `<div class="big num">${usd(api.today)}</div><div class="caption">今天已花费</div>`}
+    <div class="card-top"><div><div class="card-name">${esc(who)} API</div><div class="role">${main ? 'OpenCode 副 agent 与桌面端' : 'OpenCode 里 ' + esc(p.name) + ' 的花费'}</div></div><span class="tag">按量计费</span></div>
+    ${b.remaining != null
+      ? `<div class="big num">${b.source === 'estimate' ? '<small style="margin:0 2px 0 0">≈</small>' : ''}${usd(b.remaining)}</div><div class="caption">剩余额度${b.total ? '（共 ' + usd(b.total) + '）' : ''} · ${b.source === 'admin' ? 'Anthropic 账单' : calNote(b)}</div>`
+      : `<div class="big num">${usd(p.today)}</div><div class="caption">今天已花费 · 还没填过余额，只统计花费</div>`}
     <div class="kv">
-      ${api.billing?.month != null ? `<div class="kv-row"><span>本月（UTC，与 Console 一致）</span><span class="num">${usd(api.billing.month)}${api.billing.monthly_limit ? ' / ' + usd(api.billing.monthly_limit) : ''}</span></div>` : ''}
+      ${b.month != null ? `<div class="kv-row"><span>本月${main ? '（UTC，与 Console 一致）' : ''}</span><span class="num">${usd(b.month)}${b.monthly_limit ? ' / ' + usd(b.monthly_limit) : ''}</span></div>` : ''}
       ${api.estimated ? '<div class="kv-row" style="color:var(--text-3);font-size:12px"><span>以下为 OpenCode 本地记录，未乘修正系数</span><span></span></div>' : ''}
-      <div class="kv-row"><span>今日（UTC）</span><span class="num">${usd(api.today)}</span></div>
-      <div class="kv-row"><span>近 7 天</span><span class="num">${usd(api.week)}</span></div>
-      <div class="kv-row"><span>近 30 天</span><span class="num">${usd(api.d30)}</span></div>
-      <div class="kv-row"><span>本月（自然月）</span><span class="num">${usd(api.month)}</span></div>
+      <div class="kv-row"><span>今日（UTC）</span><span class="num">${usd(p.today)}</span></div>
+      <div class="kv-row"><span>近 7 天</span><span class="num">${usd(p.week)}</span></div>
+      <div class="kv-row"><span>近 30 天</span><span class="num">${usd(p.d30)}</span></div>
+      <div class="kv-row"><span>本月（自然月）</span><span class="num">${usd(p.month)}</span></div>
     </div>
     <div class="bars">${bars}</div>
     <div class="bars-cap"><span>14 天前</span><span>今天</span></div>
-    <div class="card-foot"><div class="card-foot-inner"><span>${sources ? '今日 · ' + sources : '暂无 API 用量'}</span>
-      ${api.billing?.source !== 'admin' ? '<button class="link-btn" data-cal>校准余额</button>' : ''}</div></div></div>`;
+    <div class="card-foot"><div class="card-foot-inner"><span>${sources ? '今日 · ' + sources : (p.total > 0 ? '累计 ' + usd(p.total) : '暂无用量')}</span>
+      ${b.source !== 'admin' ? `<button class="link-btn" data-cal="${esc(p.id)}">校准余额</button>` : ''}</div></div></div>`;
 }
 function calNote(b) {
   if (!b.as_of) return '本地估算，<span class="warn-text">尚未校准</span>';
   const f = b.factor && b.factor !== 1 ? ` · 修正 ×${b.factor.toFixed(1)}` : '';
-  return b.stale ? `<span class="warn-text">${ago(b.as_of)}校准，偏差可能已很大，请重新校准</span>`
-                 : `${ago(b.as_of)}校准${f}`;
+  return b.stale ? `${ago(b.as_of)}校准 · 估算会逐渐偏离${f}` : `${ago(b.as_of)}校准${f}`;
 }
 
 function renderCards(d) {
@@ -387,7 +393,7 @@ function renderCards(d) {
     subscriptionCard('Codex', '副 agent · 小活', d.codex?.plan, d.codex,
       `<div class="kv"><div class="kv-row"><span>今日 token</span><span class="num">${tokens(d.codex?.tokens_today || 0)}</span></div>
        <div class="kv-row"><span>近 7 天 token</span><span class="num">${tokens(d.codex?.tokens_week || 0)}</span></div></div>`, '用一次 Codex 后显示') +
-    apiCard(d.api);
+    (d.api.providers && d.api.providers.length ? d.api.providers : [null]).map(p => apiCard(d.api, p)).join('');
 }
 
 function stateBadge(c) {
@@ -591,8 +597,14 @@ $('#calls').addEventListener('click', e => {
 
 /* API balance calibration */
 const cal = $('#cal');
-function openCal() {
-  const b = state.data?.api?.billing || {};
+let calProvider = 'anthropic';
+function openCal(provider) {
+  calProvider = typeof provider === 'string' ? provider : 'anthropic';
+  const p = (state.data?.api?.providers || []).find(x => x.id === calProvider);
+  const b = (p ? p.billing : state.data?.api?.billing) || {};
+  $('#cal-title').textContent = `校准 ${p?.name || 'Claude'} API 余额`;
+  const link = BILLING_LINK[calProvider];
+  $('#cal-where').innerHTML = link ? `打开 <a href="${link}" target="_blank" rel="noopener">${calProvider === 'anthropic' ? 'Console → Billing' : '平台账单页'}</a>` : '打开对应平台的账单页';
   $('#cal-balance').value = '';
   $('#cal-month').value = '';
   $('#cal-total').value = b.total ?? '';
@@ -600,12 +612,12 @@ function openCal() {
   if (!cal.open) cal.showModal();
   $('#cal-balance').focus();
 }
-$('#cards').addEventListener('click', e => { if (e.target.closest('[data-cal]')) openCal(); });
+$('#cards').addEventListener('click', e => { const el = e.target.closest('[data-cal]'); if (el) openCal(el.dataset.cal || 'anthropic'); });
 $('#cal-form').addEventListener('submit', async e => {
   if (e.submitter?.value !== 'save') return;
   e.preventDefault();
   const num = id => $(id).value.trim() === '' ? null : Number($(id).value);
-  const body = { balance: num('#cal-balance'), month_spend: num('#cal-month'), total: num('#cal-total') };
+  const body = { provider: calProvider, balance: num('#cal-balance'), month_spend: num('#cal-month'), total: num('#cal-total') };
   if (body.balance == null || !(body.balance >= 0)) { $('#cal-msg').textContent = '请填写当前余额'; return; }
   $('#cal-save').disabled = true;
   try {
