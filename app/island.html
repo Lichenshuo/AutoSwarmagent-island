@@ -283,7 +283,7 @@ function apiTile(a) {
 /* Row: [name chip] who · product · model · round / what it is doing / the task  [state, time] */
 function item(c) {
   const age = c.finished_at ? span(c.finished_at - c.created_at) : span(now() - c.created_at);
-  const head = [NAMES[c.provider] || c.provider, model(c.model), c.round > 1 ? `第 ${c.round} 轮` : null].filter(Boolean).join(' · ');
+  const head = [NAMES[c.provider] || c.provider, model(c.model), c.effort ? `思考 ${c.effort}` : null, c.round > 1 ? `第 ${c.round} 轮` : null].filter(Boolean).join(' · ');
   let doing = '', cls = '', side;
   if (c.state === 'running') {
     doing = c.activity?.text || '启动中';
@@ -298,7 +298,7 @@ function item(c) {
   } else {
     side = `<span class="is">完成</span><div class="ts num">${c.finished_at ? ago(c.finished_at) : ''}</div>`;
   }
-  return `<div class="item" data-id="${c.call_id}"><div class="mono">${esc(c.name || MONO[c.provider] || '··')}</div>
+  return `<div class="item" data-id="${c.call_id}"><div class="mono">${esc((c.name || MONO[c.provider] || '··').slice(0, 3))}</div>
     <div style="min-width:0">
       <div class="it"><span class="who">${esc(who(c))}</span><span class="head">${esc(head)}</span></div>
       ${doing ? `<div class="doing ${cls}">${esc(doing)}</div>` : ''}
