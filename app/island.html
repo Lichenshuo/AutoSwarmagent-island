@@ -253,8 +253,9 @@ function quotaTile(name, info, letter) {
   const q = quota(info), wo = weeklyOnly(info);
   const plan = info?.plan ? ' · ' + String(info.plan).replace(/^./, ch => ch.toUpperCase()) : '';
   const why = ({ token_expired: info?.renew?.ok === false ? '自动续期失败，请在终端 claude auth login' : '终端登录已过期，续期中',
-    no_login: '终端没登录，读不到实时额度', rate_limited: '额度接口被限流，暂用旧数据', codex_missing: '没找到 codex 命令行',
+    no_login: info?.source === 'desktop' ? '数据来自桌面端，可能不是最新' : '读不到额度，打开仪表盘看解决办法', rate_limited: '额度接口被限流，暂用旧数据', codex_missing: '没找到 codex 命令行',
     codex_no_windows: 'Codex 没返回额度窗口，暂用旧记录' })[info?.live_error]
+    || (info?.desktop_missing && !(info?.windows || []).length ? '找不到桌面端数据，打开仪表盘看解决办法' : null)
     || (info?.live_error?.startsWith('codex') ? 'Codex 实时读取失败，暂用旧记录' : info?.live_error?.startsWith('http_') ? '额度接口返回 ' + info.live_error.slice(5) : null);
   const warn = why ? `<div class="twarn" title="${esc(why + ' · ' + info.live_error + (info.live_error_detail ? ' · ' + info.live_error_detail : ''))}">${esc(why)}</div>` : '';
   return `<div class="tile"${wo ? ' title="这个套餐没有 5 小时额度，只有每周额度"' : ''}>${wo ? creditRing(q.long?.left, 46, letter) : splitRing(q, letter, 46)}<div>

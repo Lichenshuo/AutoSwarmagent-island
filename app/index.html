@@ -140,6 +140,13 @@ h2{font-size:clamp(20px,3.4vw,26px);font-weight:700;letter-spacing:-0.02em;line-
 .arow{display:grid;grid-template-columns:34px minmax(0,1.5fr) minmax(0,1fr) minmax(96px,1.1fr) auto;align-items:center;gap:14px;
   padding:14px clamp(17px,3vw,24px);cursor:pointer;transition:background .15s}
 .arow + .arow{border-top:1px solid var(--hairline)}
+.cmd{margin:8px 0 0;padding:8px 10px;background:var(--hover);border-radius:8px;font:12px/1.5 ui-monospace,Consolas,monospace;white-space:pre-wrap;word-break:break-all;cursor:copy;user-select:all}
+.idle-toggle{display:flex;align-items:center;gap:8px;width:100%;padding:12px clamp(17px,3vw,24px);border:0;border-top:1px solid var(--hairline);background:none;color:var(--text-2);font:inherit;font-size:13px;font-weight:550;cursor:pointer;text-align:left}
+.idle-toggle:hover{background:var(--hover)}
+.idle-toggle i{display:inline-block;width:7px;height:7px;border-right:2px solid currentColor;border-bottom:2px solid currentColor;transform:rotate(-45deg);transition:transform .2s}
+.idle-toggle.open i{transform:rotate(45deg)}
+.idle-toggle span{margin-left:auto;font-weight:500;color:var(--text-3)}
+.panel-empty{padding:16px clamp(17px,3vw,24px);font-size:13px;color:var(--text-3)}
 .arow:hover,.arow.on{background:var(--hover)}
 .arow.on{box-shadow:inset 3px 0 0 var(--accent)}
 .a-sub{margin-top:2px;font-size:12.5px;color:var(--text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -256,7 +263,7 @@ footer{margin:clamp(48px,8vw,80px) 0 40px;font-size:12px;color:var(--text-3);lin
 
 <script>
 const $ = s => document.querySelector(s);
-const state = { data: null, filter: 'all', agent: null, open: new Set(), showDismissed: false, undo: null };
+const state = { idleOpen: false, data: null, filter: 'all', agent: null, open: new Set(), showDismissed: false, undo: null };
 const BADSET = ['failed', 'lost', 'cancelled', 'unknown'];
 const isBad = c => BADSET.includes(c.state);
 const needsLook = c => isBad(c) && !c.superseded && !c.dismissed;   // an anomaly still worth a look
@@ -338,9 +345,11 @@ function subscriptionCard(name, role, plan, info, extra, emptyHint) {
     body = `<div class="big num">${h.value}<small>%</small></div><div class="caption">${h.label}</div>
       <div class="meters">${meters(windows, info.captured_at)}</div>`;
   } else {
-    body = `<div class="big muted">—</div><div class="caption">${emptyHint}</div>`;
+    body = `<div class="big muted">—</div><div class="caption">${info?.desktop_missing && info?.find_cmd
+      ? `没找到 Claude 桌面端的用量数据。先在桌面端打开 设置 → 用量，等一分钟；还没有就在 PowerShell 运行这条，它会自动找到并记住位置：<pre class="cmd" title="点击复制" onclick="navigator.clipboard&&navigator.clipboard.writeText(this.textContent)">${esc(info.find_cmd)}</pre>`
+      : emptyHint}</div>`;
   }
-  const why = { token_expired: info?.renew?.ok === false ? '自动续期失败：在终端运行 claude auth login' : '终端登录已过期，正在自动续期', no_login: '终端没登录：claude auth login', rate_limited: '额度接口被限流，暂用旧数据', codex_missing: '没找到 codex 命令行，额度可能不是最新' }[info?.live_error] || (info?.live_error?.startsWith('codex') ? 'Codex 实时读取失败，用的是上次运行的记录' : info?.live_error?.startsWith('http_') ? '额度接口返回 ' + info.live_error.slice(5) + '，暂用旧数据' : null);
+  const why = { token_expired: info?.renew?.ok === false ? '自动续期失败：在终端运行 claude auth login' : '终端登录已过期，正在自动续期', no_login: info?.source === 'desktop' ? '数据来自桌面端记录，可能不是最新（终端登录 claude auth login 可得实时额度）' : '读不到额度：请打开 Claude 桌面端，或在终端 claude auth login', rate_limited: '额度接口被限流，暂用旧数据', codex_missing: '没找到 codex 命令行，额度可能不是最新' }[info?.live_error] || (info?.live_error?.startsWith('codex') ? 'Codex 实时读取失败，用的是上次运行的记录' : info?.live_error?.startsWith('http_') ? '额度接口返回 ' + info.live_error.slice(5) + '，暂用旧数据' : null);
   const foot = (info?.captured_at ? `更新于 ${ago(info.captured_at)}` : '暂无额度数据') + (why ? ` · <span style="color:var(--heat)" title="${esc((info.live_error || '') + (info.live_error_detail ? ' · ' + info.live_error_detail : ''))}">${why}</span>` : '');
   return `<div class="card">
     <div class="card-top"><div><div class="card-name">${name}</div><div class="role">${role}</div></div>
@@ -498,7 +507,8 @@ function renderOverview(d) {
     + (costs.length ? stat('OpenCode 花费', usd(costs.reduce((s, [, v]) => s + v.cost, 0)), '', '按各轮实际记录累计') : '');
   const max = Math.max(...dg.agents.map(a => a.tokens), 1);
   const stateWord = { completed: '完成', failed: '失败', lost: '中断', cancelled: '已取消', running: '进行中', waiting: '待批准', unknown: '未知' };
-  const rows = dg.agents.map(a => {
+  const isRun = a => a.running > 0 || ['running', 'waiting'].includes(a.last_state);
+  const rowOf = a => {
     const nm = a.name || a.agent_id;
     const bad = ['failed', 'lost', 'cancelled', 'unknown', 'waiting'].includes(a.last_state);
     return `<div class="arow ${state.agent === a.key ? 'on' : ''}" data-agent="${esc(a.key)}">
@@ -510,8 +520,13 @@ function renderOverview(d) {
         <div class="a-bar"><i style="width:${Math.max(2, a.tokens / max * 100)}%"></i></div></div>
       <div class="row-side"><span class="state ${bad ? 'bad' : ''}">${stateWord[a.last_state] || esc(a.last_state)}</span><div class="num">${a.last_at ? dayLabel(a.last_at) + ' ' + clock(a.last_at) : ''}</div></div>
     </div>`;
-  }).join('');
-  $('#overview').innerHTML = `<div class="stats">${tiles}</div><div class="panel">${rows}</div>`;
+  };
+  const live = dg.agents.filter(isRun), idle = dg.agents.filter(a => !isRun(a));
+  const open = state.idleOpen || idle.some(a => a.key === state.agent);   // a selected idle agent keeps the list open
+  const idleTok = idle.reduce((n, a) => n + (a.tokens || 0), 0);
+  const body = (live.length ? live.map(rowOf).join('') : `<div class="panel-empty">现在没有正在运行的副 agent</div>`)
+    + (idle.length ? `<button class="idle-toggle ${open ? 'open' : ''}" data-idle-toggle><i></i>空闲的 ${idle.length} 个<span>${open ? '点击收起' : '累计 ' + tokens(idleTok) + ' token · 点击展开'}</span></button>${open ? idle.map(rowOf).join('') : ''}` : '');
+  $('#overview').innerHTML = `<div class="stats">${tiles}</div><div class="panel">${body}</div>`;
 }
 function render() {
   const d = state.data;
@@ -555,6 +570,7 @@ $('#calls').addEventListener('click', e => {
 });
 $('#refresh').addEventListener('click', load);
 $('#overview').addEventListener('click', e => {
+  if (e.target.closest('[data-idle-toggle]')) { state.idleOpen = !state.idleOpen; renderOverview(state.data); return; }
   const row = e.target.closest('[data-agent]'); if (!row) return;
   state.agent = state.agent === row.dataset.agent ? null : row.dataset.agent;
   renderOverview(state.data); renderCalls(state.data);

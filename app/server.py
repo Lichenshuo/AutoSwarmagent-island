@@ -39,7 +39,79 @@ if CLAUDE_PACKAGE:
 CODEX_SESSIONS = HOME / ".codex" / "sessions"
 CLAUDE_PROJECTS = HOME / ".claude" / "projects"
 CLAUDE_ACCOUNT = HOME / ".claude.json"
-CLAUDE_DESKTOP_DATA = next(iter(sorted((LOCAL / "Claude-Data").glob("claude_*"))), None) if (LOCAL / "Claude-Data").exists() else None
+APPDATA = Path(os.environ.get("APPDATA", HOME / "AppData/Roaming"))
+
+
+_wide = {"files": [], "at": 0.0, "running": False}
+_SKIP_DIRS = {"node_modules", ".git", "Cache", "Code Cache", "GPUCache", "DawnCache", "Crashpad", "Service Worker", "IndexedDB", "blob_storage"}
+
+
+def wide_search(limit=25.0, depth=6):
+    """Slow fallback: walk AppData looking for the file by name. Bounded in time and depth."""
+    roots = [LOCAL, APPDATA] + ([CLAUDE_PACKAGE] if CLAUDE_PACKAGE else [])
+    deadline, found = time.time() + limit, []
+    for root in roots:
+        if not root.is_dir():
+            continue
+        base = len(root.parts)
+        for dirpath, dirs, files in os.walk(root):
+            if time.time() > deadline:
+                return found
+            if len(Path(dirpath).parts) - base >= depth:
+                dirs[:] = []
+            dirs[:] = [d for d in dirs if d not in _SKIP_DIRS]
+            if "plan-usage-history.json" in files:
+                found.append(Path(dirpath) / "plan-usage-history.json")
+    return found
+
+
+def _wide_worker():
+    try:
+        _wide["files"] = wide_search()
+    finally:
+        _wide["at"], _wide["running"] = time.time(), False
+
+
+def desktop_history_files():
+    """Every plan-usage-history.json Claude Desktop might have written, on any install flavour.
+
+    Store/MSIX installs redirect AppData into the package's LocalCache, other installs write to
+    Local/Roaming directly, and the folder layout has changed between app versions, so look in all
+    of them (a few levels deep) instead of one hard-coded path. config.json "claude_desktop_data"
+    adds extra folders.
+    """
+    roots = [LOCAL / "Claude-Data", APPDATA / "Claude", LOCAL / "Claude"]
+    if CLAUDE_PACKAGE:
+        for sub in ("Local/Claude-Data", "Roaming/Claude", "Local/Claude"):
+            roots.append(CLAUDE_PACKAGE / "LocalCache" / sub)
+    for extra in (read_json(CONFIG_FILE) or {}).get("claude_desktop_data") or []:
+        roots.append(Path(os.path.expanduser(extra)))
+    found = []
+    for root in roots:
+        try:
+            if root.is_dir():
+                found += [f for pattern in ("plan-usage-history.json", "*/plan-usage-history.json", "*/*/plan-usage-history.json")
+                          for f in root.glob(pattern)]
+        except OSError:
+            pass
+    if not found:   # nothing at the usual places: search AppData in the background, retried every 10 minutes
+        if not _wide["running"] and time.time() - _wide["at"] > 600:
+            _wide["running"] = True
+            threading.Thread(target=_wide_worker, daemon=True).start()
+        found = list(_wide["files"])
+    return roots, list(dict.fromkeys(found))
+
+
+def desktop_samples():
+    """(samples, file) from the Desktop history file with the newest sample; ([], None) when there is none."""
+    best, best_file = [], None
+    for f in desktop_history_files()[1]:
+        samples = (read_json(f) or {}).get("samples") or []
+        if samples and (not best or max(x.get("t", 0) for x in samples) > max(x.get("t", 0) for x in best)):
+            best, best_file = samples, f
+    return best, best_file
+
+
 CLAUDE_STATUS = DATA / "claude-status.json"
 CLAUDE_WINDOW_DAYS = 7
 
@@ -664,15 +736,13 @@ def claude_quota():
     candidates = []
     if live and live.get("windows") and time.time() - (live.get("captured_at") or 0) < 86400:
         candidates.append(live)
-    if CLAUDE_DESKTOP_DATA:
-        history = read_json(CLAUDE_DESKTOP_DATA / "plan-usage-history.json") or {}
-        samples = history.get("samples") or []
-        if samples:
-            last = max(samples, key=lambda s: s.get("t", 0))
-            u = last.get("u") or {}
-            windows = [{"key": key, "used": u.get(short), "resets_at": None}
-                       for key, short in (("five_hour", "fh"), ("seven_day", "sd")) if u.get(short) is not None]
-            candidates.append({"captured_at": last.get("t", 0) / 1000, "windows": windows, "source": "desktop"})
+    samples, _ = desktop_samples()
+    if samples:
+        last = max(samples, key=lambda s: s.get("t", 0))
+        u = last.get("u") or {}
+        windows = [{"key": key, "used": u.get(short), "resets_at": None}
+                   for key, short in (("five_hour", "fh"), ("seven_day", "sd")) if u.get(short) is not None]
+        candidates.append({"captured_at": last.get("t", 0) / 1000, "windows": windows, "source": "desktop"})
     status = read_json(CLAUDE_STATUS)
     if status:
         windows = [{"key": key, "used": w.get("used_percentage"), "resets_at": w.get("resets_at")}
@@ -683,6 +753,11 @@ def claude_quota():
     best = dict(best)
     # Tell the UI why the live reading is not being used (expired login, rate limit, ...).
     best["live_error"] = _oauth_error["error"] if best.get("source") != "oauth" or _oauth_error["error"] else None
+    if not samples:
+        exe = Path(sys.executable)
+        exe = exe.with_name("python.exe") if exe.name.lower() == "pythonw.exe" and exe.with_name("python.exe").exists() else exe
+        best["desktop_missing"] = True
+        best["find_cmd"] = f'& "{exe}" "{Path(__file__).resolve()}" --find-desktop'
     best["renew"] = {"ok": _renew_state["ok"], "error": _renew_state["error"], "at": _renew_state["at"] or None}
     return best
 
@@ -752,12 +827,12 @@ def quota_debug():
         out["live_api"] = live
     cache = read_json(OAUTH_CACHE) or {}
     out["cache_file"] = {"captured": iso(cache.get("captured_at")), "windows": {w["key"]: {"used_pct": w["used"], "resets_at": iso(w["resets_at"])} for w in cache.get("windows") or []}}
-    if CLAUDE_DESKTOP_DATA:
-        samples = (read_json(CLAUDE_DESKTOP_DATA / "plan-usage-history.json") or {}).get("samples") or []
-        last = sorted(samples, key=lambda s: s.get("t", 0))[-3:]
-        out["desktop_samples_latest3"] = [{"at": iso(s.get("t", 0) / 1000), "five_hour": (s.get("u") or {}).get("fh"), "seven_day": (s.get("u") or {}).get("sd")} for s in last]
-    else:
-        out["desktop_samples_latest3"] = "no Claude-Data folder found"
+    roots, files = desktop_history_files()
+    samples, used_file = desktop_samples()
+    last = sorted(samples, key=lambda s: s.get("t", 0))[-3:]
+    out["desktop_history"] = {"searched": [str(r) for r in roots], "files_found": [str(f) for f in files], "using": str(used_file) if used_file else None}
+    out["desktop_samples_latest3"] = ([{"at": iso(s.get("t", 0) / 1000), "five_hour": (s.get("u") or {}).get("fh"), "seven_day": (s.get("u") or {}).get("sd")} for s in last]
+                                      or "no plan-usage-history.json found: Claude Desktop has not recorded usage on this PC (or it lives elsewhere: add its folder to config.json \"claude_desktop_data\")")
     status = read_json(CLAUDE_STATUS)
     out["statusline"] = ({"captured": iso(status.get("captured_at")), "rate_limits": status.get("rate_limits")} if status else None)
     cdebug = {}
@@ -1533,6 +1608,32 @@ def start_server(port=PORT):
     return server
 
 
+def find_desktop():
+    print("Searching AppData for Claude Desktop's plan-usage-history.json (up to a minute)...", flush=True)
+    files = list(dict.fromkeys(desktop_history_files()[1] + wide_search(limit=60.0, depth=8)))
+    rows = []
+    for f in files:
+        samples = (read_json(f) or {}).get("samples") or []
+        rows.append((max((x.get("t", 0) for x in samples), default=0), f, len(samples)))
+    if not rows:
+        print("NOT FOUND. Open Claude Desktop, go to Settings -> Usage once, wait a minute, then run this again.\n"
+              "If it still fails, send the output of --quota-debug to the developer.")
+        return 1
+    rows.sort(reverse=True)
+    for t, f, n in rows:
+        print(f"{datetime.fromtimestamp(t / 1000).strftime('%Y-%m-%d %H:%M') if t else 'empty'}  {n} samples  {f}")
+    folder = str(rows[0][1].parent)
+    config = read_json(CONFIG_FILE) or {}
+    known = config.get("claude_desktop_data") or []
+    if folder not in known:
+        config["claude_desktop_data"] = known + [folder]
+        tmp = CONFIG_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.replace(tmp, CONFIG_FILE)
+    print(f"\nRemembered: {folder}\nThe island picks it up within a minute; no restart needed.")
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=PORT)
@@ -1544,6 +1645,8 @@ def main():
     parser.add_argument("--provider", default="anthropic", help="with --calibrate: OpenCode provider id (anthropic, openai, ...)")
     parser.add_argument("--renew-token", action="store_true",
                         help="ask Claude Code to renew the terminal login token now and report which method worked")
+    parser.add_argument("--find-desktop", action="store_true",
+                        help="search this PC for Claude Desktop's usage file and remember where it is")
     parser.add_argument("--quota-debug", action="store_true",
                         help="print where the Claude 5-hour / weekly numbers come from (no secrets) and exit")
     args = parser.parse_args()
@@ -1555,6 +1658,8 @@ def main():
         return 0
     if args.quota_debug:
         return quota_debug()
+    if args.find_desktop:
+        return find_desktop()
     if args.calibrate is not None:
         print(json.dumps(calibrate(args.calibrate, args.month, args.total, args.provider), ensure_ascii=False))
         return 0

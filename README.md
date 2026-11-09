@@ -49,6 +49,8 @@ git clone https://github.com/Lichenshuo/AutoSwarmagent-island "$HOME\.claude\ski
 powershell -ExecutionPolicy Bypass -File "$HOME\.claude\skills\agent-island\install.ps1" -Autostart
 ```
 
+**更新**：进入安装目录运行 `git pull`，然后退出灵动岛再重开。你的 `config.json`、`data` 和 `.venv` 不在版本库里，不会被覆盖。
+
 `-Autostart` 表示登录 Windows 后自动启动，去掉即只安装；`install.ps1 -NoAutostart` 可取消自启。
 
 之后双击 `island.cmd` 启动灵动岛，`dashboard.cmd` 同时打开仪表盘。
