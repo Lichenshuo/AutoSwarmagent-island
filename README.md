@@ -71,7 +71,7 @@ powershell -ExecutionPolicy Bypass -File "$HOME\.claude\skills\agent-island\inst
 | Codex 额度 | 每 3 分钟向 Codex 自己的 `codex app-server` 问一次当前额度（登录由 Codex 自己处理）；问不到时退回 `~/.codex/sessions` 里最新的 `rate_limits`，那只在 Codex 运行时才更新 |
 | Claude API 花费 | OpenCode 数据库中每条消息的 `cost`；默认 `~/.local/share/opencode/opencode.db`，可在 `config.json` 里追加（见 `config.example.json`），v1 / v2 自动识别 |
 | Claude API 余额 | 有管理员密钥（`anthropic_admin_key`）时用官方 Cost API，精确；否则为"上次校准的余额 − 之后本地花费 × 修正系数"的估算 |
-| DSH（DeepSeek Harness）| 读 `~/.dsh/sessions` 下每个会话的 `session.v4.jsonl.zstd`（需要 `zstandard`，安装脚本会装）：每一轮的 token、模型、思考档位。用 DeepSeek **账号登录**的模型（`deepseek-account/…`）不按 token 计费，只统计用量；用 **API 密钥**的才有金额 |
+| DSH（DeepSeek Harness）| 读 `~/.dsh/sessions` 下每个会话的 `session.v4.jsonl.zstd`（需要 `zstandard`，安装脚本会装）：每一轮的 token、模型、思考档位。DeepSeek 只有 API 计费：账号登录（`deepseek-account/…`）和 API 密钥的用量合并成一张 DeepSeek 卡 |
 | DeepSeek 余额 | 有 API 密钥时调官方 `GET /user/balance`（密钥只发给 api.deepseek.com，来源：`config.json` 的 `deepseek_api_key`，或 DSH 配置里 `providers → deepseek → apiKeyEnv` 指定的环境变量，或 `DEEPSEEK_API_KEY`）。已使用金额：填过累计充值额就用「累计充值 − 余额」，否则按余额的下降累计 |
 | DSH 里 Claude / OpenAI 等的金额 | DSH 只记 token 不记金额，没有公开余额接口，所以是估算：token × 你填的每百万 token 单价；填了充值总额还会显示估算剩余 |
 | 派活记录 | AutoSwarm 的调用记录（含 Claude 桌面端 MSIX 重定向目录），状态由 AutoSwarm 自己判定 |
@@ -82,7 +82,7 @@ powershell -ExecutionPolicy Bypass -File "$HOME\.claude\skills\agent-island\inst
 检测到 `~/.dsh`（或 `DSH_HOME`）才会出现，没有 DSH 的电脑完全不显示。仪表盘「DSH 额度」里每个模型厂商一张卡，岛上多一格 DeepSeek。
 
 - **DeepSeek API**：接了密钥就显示账户余额（含赠送/充值拆分）和已使用金额，精确。没接时卡片会告诉你怎么接。
-- **账号登录**：不按 token 计费，只显示用量。
+- **账号登录和 API 密钥**：DeepSeek 只有 API 计费，两种登录方式的用量合并成一张卡；仪表盘和岛上的模型旁会标注这一轮是哪种登录。
 - **Claude / OpenAI 等**：没有金额接口，按 token 估算，金额前带 ≈。一次性设置单价（每百万 token，美元；缓存价可不填，不填按输入价算，会偏高）：
 
 ```powershell
@@ -128,7 +128,7 @@ app/statusline.py   可选：Claude Code 终端状态栏，顺带记录额度
 每次发布都会在这里记一条，并打同名标签（`git tag`）。已装过的人 `git pull` 即可更新，更新后退出灵动岛再重开。
 
 ### 0.003
-- 新增 DSH（DeepSeek Harness）支持：仪表盘「DSH 额度」按厂商分卡，岛上多一格 DeepSeek；派活记录有 DSH 筛选，每轮显示 token、模型、思考档位，并区分「账号登录」和「API 密钥」
+- 新增 DSH（DeepSeek Harness）支持：仪表盘「DSH 额度」按厂商分卡，岛上多一格 DeepSeek；派活记录有 DSH 筛选，每轮显示 token、模型、思考档位，并标注登录方式（账号登录 / API 密钥，DeepSeek 用量合并计算）
 - DeepSeek 用官方余额接口读账户余额和已使用金额；Claude / OpenAI 等经 DSH 的按 token 估算（一次性填单价，不用定期校准）
 - 没有 OpenCode 数据时，不再显示原来的 Claude API 卡片
 - 新增依赖 `zstandard`（读 DSH 会话），装不上只缺 DSH 的 token 统计

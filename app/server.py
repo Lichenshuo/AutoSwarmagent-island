@@ -1276,7 +1276,7 @@ DSH_SESSION_FILE = "session.v4.jsonl.zstd"
 DEEPSEEK_BALANCE_URL = "https://api.deepseek.com/user/balance"
 _dsh_cache = {}
 _dsh_lock = threading.Lock()
-DSH_LABELS = {"deepseek-account": "DeepSeek 账号", "deepseek": "DeepSeek API", "anthropic": "Claude API", "openai": "OpenAI API"}
+DSH_LABELS = {"deepseek": "DeepSeek", "anthropic": "Claude API", "openai": "OpenAI API"}
 
 
 def _zstd_decompress(data):
@@ -1384,7 +1384,7 @@ def dsh_session(session_id):
 
 
 def dsh_route(provider):
-    """How a DSH model is paid for: the DeepSeek account login (not billed per token) or an API key."""
+    """How DSH signs in to the model: the DeepSeek account login or an API key. Billing is per token either way."""
     if not provider:
         return None
     return "account" if str(provider).startswith("deepseek-account") else "api"
@@ -1509,6 +1509,7 @@ def dsh_snapshot():
             continue
         s = parse_dsh_session(path)
         for ts, prov, _model, inp, out_t, cr, cw in (s or {}).get("msgs", []):
+            prov = "deepseek" if str(prov).startswith("deepseek") else prov     # account login and API key bill the same account
             a = acc.setdefault(prov or "?", {"today": 0, "week": 0, "month": 0, "all": 0,
                                            "split": {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0}, "msplit": {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0}})
             tot = inp + out_t + cr + cw
@@ -1526,8 +1527,7 @@ def dsh_snapshot():
     config = read_json(CONFIG_FILE) or {}
     for pid, a in sorted(acc.items(), key=lambda kv: -kv[1]["week"]):
         price = _dsh_price(pid)
-        route = dsh_route(pid)
-        card = {"id": pid, "name": DSH_LABELS.get(pid) or provider_name(pid), "route": route,
+        card = {"id": pid, "name": DSH_LABELS.get(pid) or provider_name(pid),
                 "tokens": {k: a[k] for k in ("today", "week", "month", "all")},
                 "price": price, "currency": (price or {}).get("currency") or ("CNY" if pid.startswith("deepseek") else "USD"),
                 "cost_month": _cost(a["msplit"], price), "cost_all": _cost(a["split"], price)}
