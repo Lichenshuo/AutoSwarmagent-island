@@ -18,5 +18,21 @@
       "at": "2026-11-01T08:00:00Z"
     }
   },
-  "anthropic_admin_key": ""
+  "anthropic_admin_key": "",
+  "deepseek_api_key": "",
+  "deepseek_total": {
+    "CNY": 100
+  },
+  "dsh_prices": {
+    "anthropic": {
+      "input": 3,
+      "output": 15,
+      "cache_read": 0.3,
+      "cache_write": 3.75,
+      "currency": "USD"
+    }
+  },
+  "dsh_credit": {
+    "anthropic": 50
+  }
 }

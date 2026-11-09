@@ -132,8 +132,9 @@ const $ = s => document.querySelector(s);
 const island = $('#island');
 const OPEN_W = 560, COMPACT_H = 40, TOP = 6;
 const S = { data: null, open: false, prev: new Map(), toastUntil: 0, compactW: 240, openH: 300, dismissed: new Set() };
-const NAMES = { codex: 'Codex', opencode: 'OpenCode', 'claude-code': 'Claude Code' };
-const MONO = { codex: 'CX', opencode: 'OC', 'claude-code': 'CC' };
+const NAMES = { codex: 'Codex', opencode: 'OpenCode', 'claude-code': 'Claude Code', dsh: 'DSH' };
+const MONO = { codex: 'CX', opencode: 'OC', 'claude-code': 'CC', dsh: 'DS' };
+const ROUTE = { account: '账号', api: 'API' };
 const BAD = ['failed', 'lost', 'cancelled', 'unknown'];
 const ALERT_WINDOW = 24 * 3600;
 const api = () => window.pywebview?.api;
@@ -281,10 +282,36 @@ function apiTile(a) {
   </div></div>`;
 }
 
+
+const CUR = { CNY: '¥', USD: '$' };
+const money = (v, cur) => v == null ? '—' : (CUR[cur] || (cur || '') + ' ') + (v >= 100 ? v.toFixed(0) : v.toFixed(2));
+const tok = n => n == null ? '—' : n < 1e4 ? String(n) : n < 1e8 ? (n / 1e4).toFixed(n < 1e5 ? 1 : 0) + '万' : (n / 1e8).toFixed(2) + '亿';
+/* DeepSeek Harness: the DeepSeek balance when an API key is set, otherwise today's tokens. Hidden without DSH. */
+function dshTile(ds) {
+  const r = ds.balance?.ok ? ds.balance.rows[0] : null;
+  const est = (ds.providers || []).find(p => p.route === 'api' && p.cost_all != null);
+  let value, line, pct = null, hint;
+  if (r) {
+    pct = r.credit_total ? Math.round(r.total / r.credit_total * 100) : null;
+    value = money(r.total, r.currency); line = `已用<em style="color:var(--t1);font-weight:600">${money(r.used, r.currency)}</em>`;
+    hint = 'DeepSeek 官方余额接口，精确';
+  } else if (est) {
+    value = '≈' + money(est.remaining != null ? est.remaining : est.cost_all, est.currency);
+    line = est.remaining != null ? `已用≈<em style="color:var(--t1);font-weight:600">${money(est.cost_all, est.currency)}</em>` : '累计已使用（估算）';
+    hint = `${est.name}：DSH 记录的 token × 你填的单价，估算`;
+  } else {
+    value = tok(ds.tokens_today || 0); line = ds.key_from ? '今日 token' : '今日 token · 未接密钥';
+    hint = ds.key_from ? '读不到 DeepSeek 余额，打开仪表盘看原因' : '用 DeepSeek 账号登录时只统计 token；接入 API 密钥后显示余额和已使用金额';
+  }
+  return `<div class="tile" title="${esc(hint)}">${creditRing(pct, 46, 'D')}<div><div class="tile-k">DeepSeek · DSH</div>
+    <div class="money num" style="color:${pct != null ? tone(pct) : 'var(--t1)'}">${value}</div><div class="line num" style="line-height:1.35">${line}</div></div></div>`;
+}
+const showApiTile = d => !d.dsh?.present || (d.api.providers || []).some(p => p.total > 0) || (d.api.billing || {}).remaining != null;
+
 /* Row: [name chip] who · product · model · round / what it is doing / the task  [state, time] */
 function item(c) {
   const age = c.finished_at ? span(c.finished_at - c.created_at) : span(now() - c.created_at);
-  const head = [NAMES[c.provider] || c.provider, model(c.model), c.effort ? `思考 ${c.effort}` : null, c.round > 1 ? `第 ${c.round} 轮` : null].filter(Boolean).join(' · ');
+  const head = [NAMES[c.provider] || c.provider, model(c.model), c.route ? ROUTE[c.route] : null, c.effort ? `思考 ${c.effort}` : null, c.round > 1 ? `第 ${c.round} 轮` : null].filter(Boolean).join(' · ');
   let doing = '', cls = '', side;
   if (c.state === 'running') {
     doing = c.activity?.text || '启动中';
@@ -308,7 +335,7 @@ function item(c) {
 }
 
 function full(d) {
-  $('#tiles').innerHTML = quotaTile('Claude', d.claude, 'C') + quotaTile('Codex', d.codex, 'X') + apiTile(d.api);
+  $('#tiles').innerHTML = quotaTile('Claude', d.claude, 'C') + quotaTile('Codex', d.codex, 'X') + (showApiTile(d) ? apiTile(d.api) : '') + (d.dsh?.present ? dshTile(d.dsh) : '');
   const calls = d.calls.filter(c => !c.probe);
   const active = calls.filter(c => c.state === 'running' || c.state === 'waiting');
   const bad = alerts(calls);

@@ -215,6 +215,13 @@ footer{margin:clamp(48px,8vw,80px) 0 40px;font-size:12px;color:var(--text-3);lin
     <div class="cards" id="cards"></div>
   </section>
 
+  <section class="block" id="dsh-block" hidden>
+    <div class="block-head">
+      <div><h2>DSH 额度</h2><p class="sub">DeepSeek Harness 里各个模型厂商的剩余与已使用额度；没有金额接口的按 token 估算，带 ≈</p></div>
+    </div>
+    <div class="cards" id="dsh-cards"></div>
+  </section>
+
   <section class="block">
     <div class="block-head">
       <div><h2>副 agent 总览</h2><p class="sub">累计派过多少活、各自跑了几轮、耗了多少 token；点一个 agent 就只看它的派活记录</p></div>
@@ -229,6 +236,7 @@ footer{margin:clamp(48px,8vw,80px) 0 40px;font-size:12px;color:var(--text-3);lin
         <button data-f="all" class="active">全部</button>
         <button data-f="codex">Codex</button>
         <button data-f="opencode">OpenCode</button>
+        <button data-f="dsh" id="seg-dsh" hidden>DSH</button>
         <button data-f="running">进行中</button>
         <button data-f="bad">异常<span id="bad-n"></span></button>
       </div>
@@ -267,8 +275,9 @@ const state = { idleOpen: false, data: null, filter: 'all', agent: null, open: n
 const BADSET = ['failed', 'lost', 'cancelled', 'unknown'];
 const isBad = c => BADSET.includes(c.state);
 const needsLook = c => isBad(c) && !c.superseded && !c.dismissed;   // an anomaly still worth a look
-const NAMES = { codex: 'Codex', opencode: 'OpenCode', 'claude-code': 'Claude Code' };
-const MONO = { codex: 'CX', opencode: 'OC', 'claude-code': 'CC' };
+const NAMES = { codex: 'Codex', opencode: 'OpenCode', 'claude-code': 'Claude Code', dsh: 'DSH' };
+const MONO = { codex: 'CX', opencode: 'OC', 'claude-code': 'CC', dsh: 'DS' };
+const ROUTE = { account: 'DeepSeek 账号', api: 'API 密钥' };
 const PLAN = { pro: 'Pro 订阅', max: 'Max 订阅', plus: 'Plus 订阅', team: 'Team', free: '免费版' };
 const CHEV = '<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>';
 
@@ -393,6 +402,68 @@ function calNote(b) {
   return b.stale ? `${ago(b.as_of)}校准 · 估算会逐渐偏离${f}` : `${ago(b.as_of)}校准${f}`;
 }
 
+
+/* DeepSeek Harness: remaining / used per provider. Exact where a balance API exists, otherwise an estimate. */
+const CUR = { CNY: '¥', USD: '$' };
+const money = (v, cur) => v == null ? '—' : (CUR[cur] || (cur || '') + ' ') + (v >= 100 ? v.toFixed(0) : v.toFixed(2));
+const dshKv = (rows) => `<div class="kv">${rows.filter(Boolean).map(([k, v]) => `<div class="kv-row"><span>${k}</span><span class="num">${v}</span></div>`).join('')}</div>`;
+const cmdBox = c => `<pre class="cmd" title="点击复制" onclick="navigator.clipboard&&navigator.clipboard.writeText(this.textContent)">${esc(c)}</pre>`;
+function dshTokRows(p) { return [['今日 token', tokens(p.tokens.today)], ['近 7 天 token', tokens(p.tokens.week)], ['本月 token', tokens(p.tokens.month)]]; }
+function dshCard(name, role, tag, big, caption, rows, foot) {
+  return `<div class="card"><div class="card-top"><div><div class="card-name">${esc(name)}</div><div class="role">${esc(role)}</div></div><span class="tag">${esc(tag)}</span></div>
+    <div class="big num">${big}</div><div class="caption">${caption}</div>${dshKv(rows)}
+    ${foot ? `<div class="card-foot"><div class="card-foot-inner"><span>${foot}</span></div></div>` : ''}</div>`;
+}
+function renderDsh(d) {
+  const ds = d.dsh, box = $('#dsh-block');
+  box.hidden = !ds?.present;
+  if (!ds?.present) return;
+  const cards = [];
+  const ps = ds.providers || [];
+  const dsApi = ps.find(p => p.id === 'deepseek');
+  const bal = ds.balance;
+  if (bal?.ok && bal.rows.length) {
+    for (const r of bal.rows) {
+      cards.push(dshCard('DeepSeek API', 'DSH · 官方余额接口', 'API 密钥', money(r.total, r.currency),
+        `账户余额（赠送 ${money(r.granted, r.currency)} · 充值 ${money(r.topped_up, r.currency)}）${bal.available === false ? ' · <span class="warn-text">余额不足，API 暂不可用</span>' : ''}`,
+        [[r.used_source === 'total' ? `已使用（累计充值 ${money(r.credit_total, r.currency)}）` : `已使用（${r.since ? dayLabel(r.since) + '起' : '自开始记录'}）`, money(r.used, r.currency)],
+         ...(dsApi ? dshTokRows(dsApi) : [])],
+        r.used_source === 'total' ? '余额由 DeepSeek 官方接口读取，精确' : `已使用按余额下降累计，想精确：<br>${cmdBox(ds.cmd + ' --deepseek-total ' + r.currency + ' 累计充值总额')}`));
+    }
+  } else if (ds.key_from && bal && !bal.ok) {
+    cards.push(dshCard('DeepSeek API', 'DSH · 官方余额接口', 'API 密钥', '—', `读不到余额：${{ invalid_key: '密钥无效', insufficient: '账户余额不足', rate_limited: '请求太频繁', network: '网络连不上 api.deepseek.com' }[bal.error] || esc(bal.error)}`,
+      dsApi ? dshTokRows(dsApi) : [], `密钥来自 ${esc(ds.key_from)}`));
+  } else if (!ds.key_from) {
+    cards.push(dshCard('DeepSeek API', 'DSH · 官方余额接口', '未接入', '—', '接入 API 密钥后显示账户余额和已使用金额',
+      dsApi ? dshTokRows(dsApi) : [],
+      `在系统里设置环境变量 <b>${esc(ds.key_env || 'DEEPSEEK_API_KEY')}</b>${ds.key_env ? '（DSH 配置里指定的名字）' : ''}，重启灵动岛即可；密钥只发给 api.deepseek.com`));
+  }
+  for (const p of ps) {
+    if (p.id === 'deepseek') continue;
+    if (p.route === 'account') {
+      cards.push(dshCard(p.name, 'DSH · 账号登录', '不按 token 计费', tokens(p.tokens.today), '今日 token · 账号额度不在这里统计',
+        dshTokRows(p).slice(1), '账号登录用的是 DeepSeek 账号自己的额度，没有 API 余额'));
+      continue;
+    }
+    const cur = p.currency, est = '≈';
+    const name = p.name;
+    if (p.cost_all != null) {
+      const big = p.remaining != null ? est + money(p.remaining, cur) : est + money(p.cost_all, cur);
+      const cap = p.remaining != null ? `估算剩余（共 ${money(p.credit, cur)}）` : '累计已使用（估算）';
+      cards.push(dshCard(name, 'DSH · 按 token 估算', 'API 密钥', big, cap,
+        [['已使用（估算）', est + money(p.cost_all, cur)], ['本月（估算）', est + money(p.cost_month, cur)], ...dshTokRows(p)],
+        p.remaining != null ? '金额 = DSH 记录的 token × 你填的单价，不是官方账单' : `想看剩余：${cmdBox(ds.cmd + ' --dsh-credit ' + p.id + ' 充值总额')}`));
+    } else {
+      cards.push(dshCard(name, 'DSH · 只统计 token', 'API 密钥', tokens(p.tokens.month), '本月 token · 还没填单价',
+        dshTokRows(p).slice(0, 2),
+        `填一次每百万 token 的价格就显示金额：${cmdBox(ds.cmd + ' --dsh-price ' + p.id + ' 输入价 输出价 缓存读价 缓存写价')}`));
+    }
+  }
+  if (!ds.zstd) cards.push(dshCard('读不到 DSH 会话', '缺少解压组件', '需要安装', '—', '没法统计 token', [],
+    `在灵动岛的环境里装一次：<br>${cmdBox('uv pip install --python "' + (ds.cmd.match(/"([^"]+python[^"]*)"/) || [, ''])[1] + '" zstandard')}`));
+  $('#dsh-cards').innerHTML = cards.join('') || '<div class="panel"><div class="empty">还没有 DSH 用量</div></div>';
+}
+
 function renderCards(d) {
   const c = d.claude;
   const claudeExtra = `<div class="kv"><div class="kv-row"><span>今日 token</span><span class="num">${tokens(c.tokens_today)}</span></div>
@@ -402,7 +473,8 @@ function renderCards(d) {
     subscriptionCard('Codex', '副 agent · 小活', d.codex?.plan, d.codex,
       `<div class="kv"><div class="kv-row"><span>今日 token</span><span class="num">${tokens(d.codex?.tokens_today || 0)}</span></div>
        <div class="kv-row"><span>近 7 天 token</span><span class="num">${tokens(d.codex?.tokens_week || 0)}</span></div></div>`, '用一次 Codex 后显示') +
-    (d.api.providers && d.api.providers.length ? d.api.providers : [null]).map(p => apiCard(d.api, p)).join('');
+    ((d.dsh?.present && !(d.api.providers || []).some(p => p.total > 0) && d.api.billing?.remaining == null) ? '' :
+      (d.api.providers && d.api.providers.length ? d.api.providers : [null]).map(p => apiCard(d.api, p)).join(''));
 }
 
 function stateBadge(c) {
@@ -419,7 +491,7 @@ function callRow(c) {
   const title = (c.state === 'running' && c.activity ? c.activity.text + ' — ' : '') + (c.prompt.split('\n').find(l => l.trim()) || '（空任务）').trim();
   const dur = c.finished_at ? span(c.finished_at - c.created_at) : (c.state === 'running' ? '已运行 ' + span(Date.now() / 1000 - c.created_at) : null);
   const u = c.usage;
-  const meta = [c.name, NAMES[c.provider] || c.provider, model(c.model) || '默认模型', c.effort ? '思考 ' + c.effort : null,
+  const meta = [c.name, NAMES[c.provider] || c.provider, model(c.model) || '默认模型', c.route ? ROUTE[c.route] : null, c.effort ? '思考 ' + c.effort : null,
     c.round > 1 ? `第 ${c.round} 轮` : null, base(c.workspace), dur,
     u?.tokens ? (u.scope === 'call' ? '本次 ' + tokens(u.tokens) + ' token' : '会话累计 ' + tokens(u.tokens) + ' token（拆不出本次）') : null,
     u?.cost ? usd(u.cost) : null].filter(Boolean).join(' · ');
@@ -486,7 +558,7 @@ function renderSessions(d) {
   </div></div>`).join('')}</div>`;
 }
 
-const PNAME = { codex: 'Codex', opencode: 'OpenCode', 'claude-code': 'Claude Code' };
+const PNAME = { codex: 'Codex', opencode: 'OpenCode', 'claude-code': 'Claude Code', dsh: 'DSH' };
 function agentLabel(key) {
   const a = (state.data?.delegation?.agents || []).find(x => x.key === key);
   return a ? (a.name || a.agent_id) + ' · ' + (PNAME[a.provider] || a.provider) : key;
@@ -514,7 +586,7 @@ function renderOverview(d) {
     return `<div class="arow ${state.agent === a.key ? 'on' : ''}" data-agent="${esc(a.key)}">
       <div class="mono">${esc((a.name || PNAME[a.provider] || '··').slice(0, 3))}</div>
       <div style="min-width:0"><div class="row-title">${esc(nm)}<span style="font-weight:500;color:var(--text-3)"> · ${esc(PNAME[a.provider] || a.provider)}</span></div>
-        <div class="a-sub">${esc([model(a.model), a.effort ? '思考 ' + a.effort : null].filter(Boolean).join(' · ') || '默认模型')}${a.last_task ? ' — ' + esc(a.last_task) : ''}</div></div>
+        <div class="a-sub">${esc([model(a.model), a.route ? ROUTE[a.route] : null, a.effort ? '思考 ' + a.effort : null].filter(Boolean).join(' · ') || '默认模型')}${a.last_task ? ' — ' + esc(a.last_task) : ''}</div></div>
       <div class="a-mid a-num"><b>${a.rounds}</b> 轮 · 完成 <b>${a.completed}</b>${a.failed ? ` · <span class="err">异常 <b>${a.failed}</b></span>` : ''}${a.running ? ` · 进行中 <b>${a.running}</b>` : ''}</div>
       <div class="a-tok a-num">${a.approx && !a.tokens ? `<span title="这个 agent 的数据拆不出每一轮，只有整个会话的累计">会话累计 <b>${tokens(a.session_tokens)}</b></span>` : `<b>${tokens(a.tokens)}</b> token`}${a.cost > 0 ? ' · ' + usd(a.cost) : ''}
         <div class="a-bar"><i style="width:${Math.max(2, a.tokens / max * 100)}%"></i></div></div>
@@ -536,7 +608,9 @@ function render() {
   $('#stale').hidden = !d.restart_needed;
   const nBad = d.calls.filter(c => !c.probe && (c.state === 'waiting' || needsLook(c))).length;
   $('#bad-n').textContent = nBad ? ' ' + nBad : '';
+  $('#seg-dsh').hidden = !d.calls.some(c => c.provider === 'dsh');
   renderCards(d);
+  renderDsh(d);
   renderOverview(d);
   renderCalls(d);
   renderSessions(d);

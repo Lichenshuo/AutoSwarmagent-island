@@ -4,8 +4,10 @@ Read-only: it never writes to agent data, only to its own data/ directory.
 """
 import argparse
 import copy
+import io
 import json
 import os
+import re
 import shutil
 import sqlite3
 import subprocess
@@ -1265,6 +1267,282 @@ def _inspect_all():
                 yield task, {"state": "unknown", "error": str(exc)}
 
 
+# ── DeepSeek Harness (dsh) ───────────────────────────────────────────────
+# DSH keeps one zstd-compressed JSONL per session under ~/.dsh/sessions/<workspace>/<session-id>/. It records
+# tokens per model message but no money, so amounts are exact only where a provider has a balance API
+# (DeepSeek) and otherwise an estimate from the tokens and a price the user entered once.
+DSH_HOME = Path(os.environ.get("DSH_HOME") or HOME / ".dsh")
+DSH_SESSION_FILE = "session.v4.jsonl.zstd"
+DEEPSEEK_BALANCE_URL = "https://api.deepseek.com/user/balance"
+_dsh_cache = {}
+_dsh_lock = threading.Lock()
+DSH_LABELS = {"deepseek-account": "DeepSeek 账号", "deepseek": "DeepSeek API", "anthropic": "Claude API", "openai": "OpenAI API"}
+
+
+def _zstd_decompress(data):
+    """Bytes of a zstd stream, or None when no decoder is installed (pip install zstandard)."""
+    try:
+        import zstandard
+        return zstandard.ZstdDecompressor().stream_reader(io.BytesIO(data)).read()
+    except ImportError:
+        pass
+    try:
+        from compression import zstd   # Python 3.14+
+        return zstd.decompress(data)
+    except ImportError:
+        return None
+
+
+def _zstd_probe():
+    try:
+        import zstandard  # noqa: F401
+        return True
+    except ImportError:
+        pass
+    try:
+        from compression import zstd  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+def _dsh_time(t, created_ms):
+    """A record time as unix seconds: epoch ms, epoch s, or an offset in ms from the session start."""
+    if not isinstance(t, (int, float)):
+        return None
+    if t > 1e12:
+        return t / 1000
+    if t > 1e9:
+        return float(t)
+    return (created_ms + t) / 1000 if created_ms else None
+
+
+def parse_dsh_session(path):
+    """{id, cwd, provider, model, effort, tokens, events:[(ts, cumulative total)], msgs:[(ts, provider, model, in, out, cache_r, cache_w)]}."""
+    try:
+        st = path.stat()
+    except OSError:
+        return None
+    stamp = (st.st_mtime_ns, st.st_size)
+    with _dsh_lock:
+        hit = _dsh_cache.get(str(path))
+        if hit and hit[0] == stamp:
+            return hit[1]
+    try:
+        raw = _zstd_decompress(path.read_bytes())
+    except OSError:
+        return None
+    if raw is None:
+        return None
+    info = {"id": path.parent.name, "cwd": None, "provider": None, "model": None, "effort": None, "tokens": 0, "events": [], "msgs": []}
+    created_ms, cum = None, 0
+    for line in raw.decode("utf-8", "replace").splitlines():
+        if not line.strip():
+            continue
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(rec, dict):
+            continue
+        typ, data = rec.get("type"), rec.get("data") if isinstance(rec.get("data"), dict) else {}
+        if typ == "session":
+            c = rec.get("createdAt")
+            created_ms = (c if c > 1e12 else c * 1000) if isinstance(c, (int, float)) else None
+            info["cwd"] = rec.get("cwd")
+        elif typ == "request/header":
+            cfg = (data.get("header") or {}).get("config") or {}
+            info["provider"], info["model"] = cfg.get("provider") or info["provider"], cfg.get("model") or info["model"]
+            info["effort"] = cfg.get("reasoningEffort") or info["effort"]
+        elif typ == "assistant/message":
+            u = data.get("usage") or {}
+            n = lambda k: int(u.get(k) or 0) if isinstance(u.get(k), (int, float)) else 0
+            inp, out, cr, cw = n("inputTokens"), n("outputTokens"), n("cacheReadTokens"), n("cacheWriteTokens")
+            total = n("totalTokens") or inp + out + cr + cw
+            src = (data.get("message") or {}).get("source") or {}
+            prov, model = src.get("provider") or info["provider"], src.get("model") or info["model"]
+            ts = _dsh_time(rec.get("time"), created_ms)
+            cum += total
+            if ts:
+                info["events"].append((ts, cum))
+            info["msgs"].append((ts, prov, model, inp, out, cr, cw))
+    info["tokens"] = cum
+    info["events"].sort()
+    with _dsh_lock:
+        _dsh_cache[str(path)] = (stamp, info)
+    return info
+
+
+def dsh_files():
+    return {p.parent.name: p for p in DSH_HOME.glob(f"sessions/*/*/{DSH_SESSION_FILE}")} if DSH_HOME.is_dir() else {}
+
+
+def dsh_session(session_id):
+    files = dsh_files()
+    path = files.get(session_id) or files.get("session-" + str(session_id)) or files.get(str(session_id).replace("session-", "", 1))
+    return parse_dsh_session(path) if path else None
+
+
+def dsh_route(provider):
+    """How a DSH model is paid for: the DeepSeek account login (not billed per token) or an API key."""
+    if not provider:
+        return None
+    return "account" if str(provider).startswith("deepseek-account") else "api"
+
+
+def dsh_model(raw, session=None):
+    """(provider, model name, effort) for a call: AutoSwarm's record first, the session's own config as the fallback."""
+    prov, name = None, raw
+    if raw and "/" in raw:
+        prov, name = raw.split("/", 1)
+    s = session or {}
+    return prov or s.get("provider"), name or s.get("model"), s.get("effort")
+
+
+def _dsh_price(pid):
+    return ((read_json(CONFIG_FILE) or {}).get("dsh_prices") or {}).get(pid)
+
+
+def _cost(split, price):
+    """Estimated money for a token split at per-million prices. Cache prices default to the input price (an upper bound)."""
+    if not price or price.get("input") is None:
+        return None
+    rate = {k: float(price.get(k) if price.get(k) is not None else price["input"]) for k in ("input", "output", "cache_read", "cache_write")}
+    return sum(split.get(k, 0) * rate[k] for k in rate) / 1e6
+
+
+def _dsh_api_env_name():
+    """The environment variable DSH is told to read the DeepSeek key from (providers → deepseek → apiKeyEnv)."""
+    for f in sorted(DSH_HOME.glob("profiles/*/*.yml")) if DSH_HOME.is_dir() else []:
+        try:
+            lines = f.read_text(encoding="utf-8", errors="ignore").splitlines()
+        except OSError:
+            continue
+        for i, line in enumerate(lines):
+            m = re.match(r"^(\s*)deepseek:\s*$", line)
+            if not m:
+                continue
+            indent = len(m.group(1))
+            for nxt in lines[i + 1:]:
+                if nxt.strip() and len(nxt) - len(nxt.lstrip()) <= indent:
+                    break
+                k = re.match(r"^\s*apiKeyEnv:\s*['\"]?([A-Za-z_][A-Za-z0-9_]*)", nxt)
+                if k:
+                    return k.group(1)
+    return None
+
+
+def deepseek_key():
+    """(api key, where it came from). The key itself never leaves this process except to api.deepseek.com."""
+    key = (read_json(CONFIG_FILE) or {}).get("deepseek_api_key")
+    if key:
+        return key, "config.json"
+    for name in filter(None, (_dsh_api_env_name(), "DEEPSEEK_API_KEY")):
+        if os.environ.get(name):
+            return os.environ[name], "环境变量 " + name
+    return None, None
+
+
+BALANCE_FILE = DATA / "deepseek-balance.json"
+
+
+def deepseek_balance(key):
+    """DeepSeek's own balance, per currency, plus the money spent since the island first saw the account."""
+    req = urllib.request.Request(DEEPSEEK_BALANCE_URL, headers={"Authorization": "Bearer " + key, "Accept": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as response:
+            data = json.loads(response.read().decode("utf-8", "replace"))
+    except urllib.error.HTTPError as exc:
+        return {"ok": False, "error": {401: "invalid_key", 402: "insufficient", 429: "rate_limited"}.get(exc.code, f"http_{exc.code}")}
+    except Exception as exc:
+        return {"ok": False, "error": "network", "detail": type(exc).__name__}
+    totals = (read_json(CONFIG_FILE) or {}).get("deepseek_total") or {}
+    track = read_json(BALANCE_FILE) or {}
+    rows = []
+    for b in data.get("balance_infos") or []:
+        cur = b.get("currency") or "CNY"
+        try:
+            total, granted, topped = float(b.get("total_balance")), float(b.get("granted_balance") or 0), float(b.get("topped_up_balance") or 0)
+        except (TypeError, ValueError):
+            continue
+        t = track.setdefault(cur, {"first_total": total, "first_at": time.time(), "last_total": total, "spent": 0.0})
+        if total < t["last_total"]:
+            t["spent"] += t["last_total"] - total        # a drop is spending; a rise is a top-up and is ignored
+        t["last_total"] = total
+        total_in = totals.get(cur)
+        rows.append({"currency": cur, "total": total, "granted": granted, "topped_up": topped,
+                     "used": max(0.0, total_in - total) if total_in else t["spent"],
+                     "used_source": "total" if total_in else "tracked", "since": None if total_in else t["first_at"],
+                     "credit_total": total_in})
+    try:
+        DATA.mkdir(parents=True, exist_ok=True)
+        tmp = BALANCE_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(track), encoding="utf-8")
+        os.replace(tmp, BALANCE_FILE)
+    except OSError:
+        pass
+    return {"ok": True, "available": data.get("is_available"), "rows": rows, "fetched_at": time.time()}
+
+
+def self_cmd():
+    """The command that runs this script, spelled with this machine's real paths (for hints shown to the user)."""
+    exe = Path(sys.executable)
+    exe = exe.with_name("python.exe") if exe.name.lower() == "pythonw.exe" and exe.with_name("python.exe").exists() else exe
+    return f'& "{exe}" "{Path(__file__).resolve()}"'
+
+
+def dsh_snapshot():
+    """Everything the DeepSeek Harness block needs; present=False hides it on machines without DSH."""
+    files = dsh_files()
+    key, key_from = deepseek_key()
+    present = DSH_HOME.is_dir() or bool(key)
+    out = {"present": present, "zstd": _zstd_probe(), "sessions": len(files), "providers": [], "key_from": key_from,
+           "key_env": _dsh_api_env_name(), "balance": None, "cmd": self_cmd()}
+    if not present:
+        return out
+    now = time.time()
+    today, week = local_day(now), {local_day(now - i * 86400) for i in range(7)}
+    month = local_day(now)[:7]
+    acc = {}
+    for path in files.values():
+        if now - path.stat().st_mtime > 400 * 86400:
+            continue
+        s = parse_dsh_session(path)
+        for ts, prov, _model, inp, out_t, cr, cw in (s or {}).get("msgs", []):
+            a = acc.setdefault(prov or "?", {"today": 0, "week": 0, "month": 0, "all": 0,
+                                           "split": {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0}, "msplit": {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0}})
+            tot = inp + out_t + cr + cw
+            a["all"] += tot
+            for k, v in zip(("input", "output", "cache_read", "cache_write"), (inp, out_t, cr, cw)):
+                a["split"][k] += v
+            if ts:
+                d = local_day(ts)
+                a["today"] += tot if d == today else 0
+                a["week"] += tot if d in week else 0
+                if d[:7] == month:
+                    a["month"] += tot
+                    for k, v in zip(("input", "output", "cache_read", "cache_write"), (inp, out_t, cr, cw)):
+                        a["msplit"][k] += v
+    config = read_json(CONFIG_FILE) or {}
+    for pid, a in sorted(acc.items(), key=lambda kv: -kv[1]["week"]):
+        price = _dsh_price(pid)
+        route = dsh_route(pid)
+        card = {"id": pid, "name": DSH_LABELS.get(pid) or provider_name(pid), "route": route,
+                "tokens": {k: a[k] for k in ("today", "week", "month", "all")},
+                "price": price, "currency": (price or {}).get("currency") or ("CNY" if pid.startswith("deepseek") else "USD"),
+                "cost_month": _cost(a["msplit"], price), "cost_all": _cost(a["split"], price)}
+        credit = (config.get("dsh_credit") or {}).get(pid)
+        if credit and card["cost_all"] is not None:
+            card["credit"] = credit
+            card["remaining"] = max(0.0, float(credit) - card["cost_all"])
+        out["providers"].append(card)
+    out["tokens_today"] = sum(a["today"] for a in acc.values())
+    out["tokens_week"] = sum(a["week"] for a in acc.values())
+    if key:
+        out["balance"] = cached("deepseek-balance:" + (key_from or ""), 300, lambda: deepseek_balance(key))
+    return out
+
+
 def calls_snapshot(codex_sessions, opencode_sessions):
     calls = []
     for task, info in _inspect_all():
@@ -1290,6 +1568,13 @@ def calls_snapshot(codex_sessions, opencode_sessions):
             delta = gain(sess.get("events"), created or 0, end) if created else None
             usage = {"tokens": delta, "cost": None, "scope": "call", "session_tokens": sess["tokens"].get("total_tokens")} if delta is not None else \
                     {"tokens": sess["tokens"].get("total_tokens"), "cost": None, "scope": "session"}
+        dsh = None
+        if task["provider"] == "dsh":
+            dsh = dsh_session(session) if session else None
+            if dsh:
+                delta = gain(dsh["events"], created, end) if created and dsh["events"] else None
+                usage = ({"tokens": delta, "cost": None, "scope": "call", "session_tokens": dsh["tokens"]} if delta is not None
+                         else {"tokens": dsh["tokens"], "cost": None, "scope": "session"})
         elif task["provider"] == "opencode" and session in opencode_sessions:
             s = opencode_sessions[session]
             if s.get("events") and created:
@@ -1304,13 +1589,20 @@ def calls_snapshot(codex_sessions, opencode_sessions):
             elif task["provider"] == "opencode":
                 activity = opencode_activity(session)
         selection = task.get("native_options") or {}
+        model_raw, effort_raw, route = task.get("model") or selection.get("model"), task.get("effort") or selection.get("variant"), None
+        if task["provider"] == "dsh":
+            prov, model_raw, eff = dsh_model(model_raw, dsh)
+            effort_raw, route = effort_raw or eff, dsh_route(prov)
+            if prov and not str(prov).startswith("deepseek"):
+                model_raw = f"{prov}/{model_raw}"        # a non-DeepSeek model run through DSH keeps its vendor visible
         calls.append({
             "call_id": task["call_id"],
             "agent_id": task.get("agent_id") or task["call_id"],
             "provider": task["provider"],
             "name": (task.get("communication") or {}).get("name"),
-            "model": task.get("model") or selection.get("model"),
-            "effort": task.get("effort") or selection.get("variant"),
+            "model": model_raw,
+            "effort": effort_raw,
+            "route": route,
             "workspace": task.get("workspace"),
             "prompt": (task.get("prompt") or "").lstrip("\ufeff"),
             "content": (result or {}).get("content") or "",
@@ -1423,12 +1715,12 @@ def delegation_summary(calls):
     for c in sorted(real, key=lambda c: c["created_at"] or 0):
         key = f'{c["provider"]}|{c["name"] or c["agent_id"]}'
         a = agents.setdefault(key, {"key": key, "name": c["name"], "agent_id": c["agent_id"], "provider": c["provider"],
-                                    "model": None, "effort": None, "rounds": 0, "completed": 0, "failed": 0, "failed_total": 0, "running": 0,
+                                    "model": None, "effort": None, "route": None, "rounds": 0, "completed": 0, "failed": 0, "failed_total": 0, "running": 0,
                                     "tokens": 0, "cost": 0.0, "approx": False, "first_at": c["created_at"], "last_at": None,
                                     "last_state": None, "last_task": ""})
         u = c.get("usage") or {}
         a["rounds"] += 1
-        a["model"], a["effort"] = c["model"] or a["model"], c["effort"] or a["effort"]
+        a["model"], a["effort"], a["route"] = c["model"] or a["model"], c["effort"] or a["effort"], c.get("route") or a["route"]
         a["last_at"], a["last_state"], a["last_task"] = c["created_at"], c["state"], _first_line(c["prompt"])
         if c["state"] == "completed":
             a["completed"] += 1
@@ -1485,6 +1777,7 @@ def snapshot():
         "dismissed": sorted(dismissed),
         "restart_needed": restart_needed(),
         "delegation": delegation_summary(calls),
+        "dsh": cached("dsh", 20, dsh_snapshot),
         "summary": {
             "calls_today": sum(1 for c in real if c["created_at"] and local_day(c["created_at"]) == today),
             "running": sum(1 for c in real if c["state"] == "running"),
@@ -1608,6 +1901,30 @@ def start_server(port=PORT):
     return server
 
 
+def set_dsh_config(args):
+    config = read_json(CONFIG_FILE) or {}
+    if args.dsh_price:
+        pid, nums = args.dsh_price[0], [float(x) for x in args.dsh_price[1:]]
+        if len(nums) < 2:
+            print("need at least INPUT and OUTPUT price per million tokens")
+            return 2
+        price = dict(zip(("input", "output", "cache_read", "cache_write"), nums))
+        if args.currency:
+            price["currency"] = args.currency.upper()
+        config.setdefault("dsh_prices", {})[pid] = price
+        print(f"price for {pid}: {price}")
+    if args.dsh_credit:
+        config.setdefault("dsh_credit", {})[args.dsh_credit[0]] = float(args.dsh_credit[1])
+        print(f"credit for {args.dsh_credit[0]}: {args.dsh_credit[1]}")
+    if args.deepseek_total:
+        config.setdefault("deepseek_total", {})[args.deepseek_total[0].upper()] = float(args.deepseek_total[1])
+        print(f"DeepSeek total credited ({args.deepseek_total[0].upper()}): {args.deepseek_total[1]}")
+    tmp = CONFIG_FILE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(tmp, CONFIG_FILE)
+    return 0
+
+
 def find_desktop():
     print("Searching AppData for Claude Desktop's plan-usage-history.json (up to a minute)...", flush=True)
     files = list(dict.fromkeys(desktop_history_files()[1] + wide_search(limit=60.0, depth=8)))
@@ -1645,6 +1962,13 @@ def main():
     parser.add_argument("--provider", default="anthropic", help="with --calibrate: OpenCode provider id (anthropic, openai, ...)")
     parser.add_argument("--renew-token", action="store_true",
                         help="ask Claude Code to renew the terminal login token now and report which method worked")
+    parser.add_argument("--dsh-price", nargs="+", metavar=("PROVIDER", "PRICE"),
+                        help="price per million tokens for a DSH provider: PROVIDER INPUT OUTPUT [CACHE_READ [CACHE_WRITE]]")
+    parser.add_argument("--dsh-credit", nargs=2, metavar=("PROVIDER", "TOTAL"),
+                        help="money you put into a DSH provider in total, to show the remaining estimate")
+    parser.add_argument("--deepseek-total", nargs=2, metavar=("CURRENCY", "TOTAL"),
+                        help="everything ever credited to DeepSeek (top-ups + grants), to show an exact used amount")
+    parser.add_argument("--currency", default=None, help="with --dsh-price: currency the prices are in")
     parser.add_argument("--find-desktop", action="store_true",
                         help="search this PC for Claude Desktop's usage file and remember where it is")
     parser.add_argument("--quota-debug", action="store_true",
@@ -1660,6 +1984,8 @@ def main():
         return quota_debug()
     if args.find_desktop:
         return find_desktop()
+    if args.dsh_price or args.dsh_credit or args.deepseek_total:
+        return set_dsh_config(args)
     if args.calibrate is not None:
         print(json.dumps(calibrate(args.calibrate, args.month, args.total, args.provider), ensure_ascii=False))
         return 0
