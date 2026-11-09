@@ -453,9 +453,9 @@ function renderDsh(d) {
     const cur = dsApi.currency;
     cards.push(dshCard('DeepSeek', 'DSH · 账号登录与 API 密钥合计', '未接密钥',
       dsApi.cost_all != null ? '≈' + money(dsApi.remaining != null ? dsApi.remaining : dsApi.cost_all, cur) : tokens(dsApi.tokens.month),
-      dsApi.cost_all != null ? (dsApi.credit_cfg != null && dsApi.remaining != null ? `估算剩余（共 ${money(dsApi.credit_cfg, cur)}）` : '累计已使用（按 token 估算）') : '本月 token · 填单价或接入 API 密钥后显示金额',
+      dsApi.cost_all != null ? (dsApi.credit_cfg != null && dsApi.remaining != null ? `估算剩余（共 ${money(dsApi.credit_cfg, cur)}）` : `累计已使用（按 token 估算${dsApi.price_source === 'default' ? '，美元标价' : ''}）`) : '本月 token · 填单价或接入 API 密钥后显示金额',
       [dsApi.cost_all != null ? ['已使用（估算）', '≈' + money(dsApi.cost_all, cur)] : null, ...dshTokRows(dsApi)],
-      `<button class="link-btn" data-dshprice="deepseek">${dsApi.cost_all != null ? '改单价/充值额' : '填单价看金额'}</button> · 或设置环境变量 <b>${esc(ds.key_env || 'DEEPSEEK_API_KEY')}</b>${ds.key_env ? '（DSH 配置里指定的名字）' : ''} 读官方余额，密钥只发给 api.deepseek.com`));
+      `<button class="link-btn" data-dshprice="deepseek">${dsApi.price_source === 'default' ? '账户是人民币？改成实际单价' : '改单价/充值额'}</button> · 或设置环境变量 <b>${esc(ds.key_env || 'DEEPSEEK_API_KEY')}</b>${ds.key_env ? '（DSH 配置里指定的名字）' : ''} 读官方余额，密钥只发给 api.deepseek.com`));
   }
   for (const p of ps) {
     if (p.id === 'deepseek') continue;
@@ -466,7 +466,7 @@ function renderDsh(d) {
       const cap = p.remaining != null ? `估算剩余（共 ${money(p.credit, cur)}）` : '累计已使用（估算）';
       cards.push(dshCard(name, 'DSH · 按 token 估算', 'API 密钥', big, cap,
         [['已使用（估算）', est + money(p.cost_all, cur)], ['本月（估算）', est + money(p.cost_month, cur)], ...dshTokRows(p)],
-        `金额 = DSH 记录的 token × 你填的单价，不是官方账单 <button class="link-btn" data-dshprice="${esc(p.id)}">${p.remaining != null ? '改单价/充值额' : '填充值额看剩余'}</button>`));
+        `${p.price_source === 'default' ? '按公开标价估算（参考价，可改成你的实际单价）' : '金额 = DSH 记录的 token × 你填的单价，不是官方账单'} <button class="link-btn" data-dshprice="${esc(p.id)}">${p.remaining != null ? '改单价/充值额' : '填充值额看剩余'}</button>`));
     } else {
       cards.push(dshCard(name, 'DSH · 只统计 token', 'API 密钥', tokens(p.tokens.month), '本月 token · 还没填单价',
         dshTokRows(p).slice(0, 2),

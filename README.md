@@ -83,7 +83,7 @@ powershell -ExecutionPolicy Bypass -File "$HOME\.claude\skills\agent-island\inst
 
 - **DeepSeek API**：接了密钥就显示账户余额（含赠送/充值拆分）和已使用金额，精确。没接时卡片会告诉你怎么接。
 - **账号登录和 API 密钥**：DeepSeek 只有 API 计费，两种登录方式的用量合并成一张卡；仪表盘和岛上的模型旁会标注这一轮是哪种登录。
-- **Claude / OpenAI 等**：没有金额接口，按 token 估算，金额前带 ≈。一次性设置单价（每百万 token，美元；缓存价可不填，不填按输入价算，会偏高）：
+- **Claude / OpenAI 等**：没有金额接口，按 token 估算，金额前带 ≈。内置了 Claude 和 DeepSeek 的公开标价作为参考（按每条消息实际用的模型算，DeepSeek 为美元标价），不用设置也能看到大概金额；想更准，一次性设置自己的单价（每百万 token，美元；缓存价可不填，不填按输入价算，会偏高）：
 
 ```powershell
 python app\server.py --dsh-price anthropic 3 15 0.3 3.75 --currency usd
@@ -132,6 +132,8 @@ app/statusline.py   可选：Claude Code 终端状态栏，顺带记录额度
 - DeepSeek 用官方余额接口读账户余额和已使用金额；Claude / OpenAI 等经 DSH 的按 token 估算（一次性填单价，不用定期校准）
 - 有 DSH 时，原来基于 OpenCode 的 Claude API 卡片不再显示（API 额度统一走 DSH）
 - 仪表盘里可以直接点「填单价」弹窗设置，不用命令行
+- DSH 派活记录的模型和思考档位，按这一次派活时 DSH 实际运行的配置显示（不再用整个会话最后一次的设置）；`server.py --dsh-calls` 可对比 AutoSwarm 记录和会话里的实际值
+- 灵动岛展开后所有圆环排成一行、对齐；没有金额接口的厂商也显示大概金额
 - 新增依赖 `zstandard`（读 DSH 会话），装不上只缺 DSH 的 token 统计
 
 ### 0.002

@@ -60,6 +60,15 @@ html,body{background:transparent;overflow:hidden;font-family:var(--font);-webkit
 .tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
 .tile{display:flex;gap:11px;align-items:center;min-width:0;overflow:hidden}
 .tile > div:last-child{min-width:0;flex:1}
+.tiles.col{gap:4px}
+.tiles.col .tile{flex-direction:column;align-items:center;gap:7px;text-align:center}
+.tiles.col .tile > div:last-child{flex:none;width:100%}
+.tiles.col .tile-k{overflow:hidden;text-overflow:ellipsis;font-size:11px}
+.tiles.col .line{justify-content:center}
+.tiles.col .line b{min-width:0}
+.tiles.col .qnote{margin:-1px 0 4px 0}
+.tiles.col .money{font-size:20px}
+.tiles.col .twarn{text-align:center}
 .api-h{font-size:10.5px;font-weight:600;letter-spacing:.06em;color:var(--t3);margin:14px 0 9px;padding-top:12px;border-top:1px solid var(--hair)}
 #apitiles .tile{gap:10px}
 .tiles + .tiles{margin-top:0}
@@ -273,6 +282,7 @@ function creditRing(pct, size, letter = '$') {
     <circle cx="12" cy="12" r="${r}" fill="none" stroke="${tone(pct)}" stroke-width="2.8" stroke-linecap="round"
       stroke-dasharray="${c}" stroke-dashoffset="${off}"/></svg><b style="font-size:${size < 30 ? 9 : 12}px">${letter}</b></div>`;
 }
+let COL = false;      // DSH present: every ring in one aligned row, text centred under each
 function quotaTile(name, info, letter) {
   const q = quota(info), wo = weeklyOnly(info);
   const plan = info?.plan ? ' · ' + String(info.plan).replace(/^./, ch => ch.toUpperCase()) : '';
@@ -283,7 +293,7 @@ function quotaTile(name, info, letter) {
     || (info?.live_error?.startsWith('codex') ? 'Codex 实时读取失败，暂用旧记录' : info?.live_error?.startsWith('http_') ? '额度接口返回 ' + info.live_error.slice(5) : null);
   const warn = why ? `<div class="twarn" title="${esc(why + ' · ' + info.live_error + (info.live_error_detail ? ' · ' + info.live_error_detail : ''))}">${esc(why)}</div>` : '';
   return `<div class="tile"${wo ? ' title="这个套餐没有 5 小时额度，只有每周额度"' : ''}>${wo ? creditRing(q.long?.left, 46, letter) : splitRing(q, letter, 46)}<div>
-    <div class="tile-k">${name}${esc(plan)}</div>${wo ? quotaLine('full', '本周', q.long) : quotaLine('left', '5 小时', q.short) + quotaLine('right', '本周', q.long)}${warn}</div></div>`;
+    <div class="tile-k">${name}${esc(plan)}</div>${wo ? quotaLine('full', COL ? '周' : '本周', q.long) : quotaLine('left', COL ? '5h' : '5 小时', q.short) + quotaLine('right', COL ? '周' : '本周', q.long)}${warn}</div></div>`;
 }
 function apiTile(a) {
   const b = a.billing || {};
@@ -325,27 +335,22 @@ function dshTile(p, ds) {
     line = p.remaining != null ? `已用≈${strong(money(p.cost_all, p.currency))}` : '累计已用（估算）';
     hint = `${p.name}：DSH 记录的 token × 你填的单价，估算`;
   } else {
-    value = p.tokens.all ? tok(p.tokens.today) : '—'; line = p.tokens.all ? '点此填单价看金额' : '还没有用量'; warn = !!p.tokens.all;
+    value = p.tokens.all ? tok(p.tokens.today) : '0'; line = p.tokens.all ? '点此填单价看金额' : '还没有用量'; warn = !!p.tokens.all;
     hint = p.id === 'deepseek' && !ds.key_from ? '没有金额：打开仪表盘填一次单价，或接入 DeepSeek API 密钥读余额' : '没有金额：打开仪表盘填一次每百万 token 的单价';
   }
-  return `<div class="tile dsh-tile" style="cursor:pointer" title="${esc(hint)}">${creditRing(pct, 42, dshLetter(p.id))}<div><div class="tile-k">${esc(p.name)}</div>
+  return `<div class="tile dsh-tile" style="cursor:pointer" title="${esc(hint)}">${creditRing(pct, 46, dshLetter(p.id))}<div><div class="tile-k">${esc(p.name)}</div>
     <div class="money num" style="color:${pct != null ? tone(pct) : 'var(--t1)'}">${value}</div><div class="line num" style="line-height:1.35;${warn ? 'color:var(--orange)' : ''}">${line}</div></div></div>`;
 }
 function renderTiles(d) {
-  const ds = d.dsh?.present ? d.dsh : null, subs = [quotaTile('Claude', d.claude, 'C'), quotaTile('Codex', d.codex, 'X')];
-  const top = $('#tiles'), row = $('#apitiles');
-  if (!ds) {                       // no DSH: the original three tiles in one row (old OpenCode-based API tile)
-    top.style.gridTemplateColumns = 'repeat(3,minmax(0,1fr))';
-    top.innerHTML = subs.join('') + apiTile(d.api);
-    row.hidden = $('#api-h').hidden = true;
-    return;
-  }
-  top.style.gridTemplateColumns = 'repeat(2,minmax(0,1fr))';
-  top.innerHTML = subs.join('');
-  const ps = ds.providers || [];
-  row.hidden = $('#api-h').hidden = !ps.length;
-  row.style.gridTemplateColumns = 'repeat(3,minmax(0,1fr))';
-  row.innerHTML = ps.map(p => dshTile(p, ds)).join('');
+  const ds = d.dsh?.present ? d.dsh : null, top = $('#tiles');
+  COL = !!ds;
+  $('#apitiles').hidden = $('#api-h').hidden = true;      // kept for old markup; everything is one row now
+  const parts = [quotaTile('Claude', d.claude, 'C'), quotaTile('Codex', d.codex, 'X')];
+  if (!ds) parts.push(apiTile(d.api));                    // no DSH: the original three tiles (OpenCode-based API tile)
+  else parts.push(...(ds.providers || []).map(p => dshTile(p, ds)));
+  top.style.gridTemplateColumns = `repeat(${Math.min(5, parts.length)},minmax(0,1fr))`;
+  top.classList.toggle('col', COL);
+  top.innerHTML = parts.join('');
 }
 
 /* Row: [name chip] who · product · model · round / what it is doing / the task  [state, time] */
@@ -417,7 +422,7 @@ function layout() {
   content.style.width = 'max-content';
   S.compactW = Math.min(OPEN_W, Math.ceil(content.scrollWidth) + 26);
   content.style.width = prev;
-  S.openH = Math.min(innerHeight - 20, Math.max(260, $('#tiles').offsetHeight + ($('#apitiles').hidden ? 0 : $('#apitiles').offsetHeight + 28) + $('#lists').scrollHeight + 130));
+  S.openH = Math.min(innerHeight - 20, Math.max(260, $('#tiles').offsetHeight + $('#lists').scrollHeight + 130));
   island.style.width = (S.open ? OPEN_W : S.compactW) + 'px';
   island.style.height = (S.open ? S.openH : COMPACT_H) + 'px';
   report();

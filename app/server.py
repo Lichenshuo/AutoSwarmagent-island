@@ -1335,7 +1335,7 @@ def parse_dsh_session(path):
         return None
     if raw is None:
         return None
-    info = {"id": path.parent.name, "cwd": None, "provider": None, "model": None, "effort": None, "tokens": 0, "events": [], "msgs": []}
+    info = {"id": path.parent.name, "cwd": None, "provider": None, "model": None, "effort": None, "tokens": 0, "events": [], "msgs": [], "headers": []}
     created_ms, cum = None, 0
     for line in raw.decode("utf-8", "replace").splitlines():
         if not line.strip():
@@ -1355,6 +1355,7 @@ def parse_dsh_session(path):
             cfg = (data.get("header") or {}).get("config") or {}
             info["provider"], info["model"] = cfg.get("provider") or info["provider"], cfg.get("model") or info["model"]
             info["effort"] = cfg.get("reasoningEffort") or info["effort"]
+            info["headers"].append((_dsh_time(rec.get("time"), created_ms), cfg.get("provider"), cfg.get("model"), cfg.get("reasoningEffort")))
         elif typ == "assistant/message":
             u = data.get("usage") or {}
             n = lambda k: int(u.get(k) or 0) if isinstance(u.get(k), (int, float)) else 0
@@ -1389,6 +1390,26 @@ def dsh_route(provider):
     if not provider:
         return None
     return "account" if str(provider).startswith("deepseek-account") else "api"
+
+
+def dsh_call_config(sess, start, end):
+    """(provider, model, effort) DSH actually ran for one call: the messages and request headers inside its time window,
+    else the last header before it. The session-wide values are only a fallback, since a session spans many calls."""
+    if not sess or not start:
+        return None, None, None
+    lo, hi = start - 5, (end or time.time()) + 3
+    seen = {}
+    for ts, prov, model, *_ in sess.get("msgs", []):
+        if ts and lo <= ts <= hi and model:
+            seen[(prov, model)] = seen.get((prov, model), 0) + 1
+    prov, model = max(seen, key=seen.get) if seen else (None, None)
+    heads = [h for h in sess.get("headers", []) if h[0]]
+    inside = [h for h in heads if lo <= h[0] <= hi]
+    before = [h for h in heads if h[0] < lo]
+    h = (inside or before or [None])[-1]
+    if h:
+        prov, model = prov or h[1], model or h[2]
+    return prov, model, (h[3] if h else None)
 
 
 def dsh_model(raw, session=None):
@@ -1521,6 +1542,40 @@ def self_cmd():
     return f'& "{exe}" "{Path(__file__).resolve()}"'
 
 
+# Reference list prices per million tokens, used until the user enters their own. Claude prices are Anthropic's
+# first-party rates; DeepSeek's come from third-party summaries of its list price (USD, promotions not applied),
+# so treat every number derived from them as an estimate. Cache reads default to 0.1x input and cache writes to 1.25x.
+DEFAULT_PRICES = [
+    (r"claude-(fable|mythos)", {"input": 10, "output": 50, "cache_read": 0.25, "cache_write": 12.5}),
+    (r"claude-opus-5-5", {"input": 4, "output": 20, "cache_read": 0.2, "cache_write": 5}),
+    (r"claude-opus", {"input": 5, "output": 25, "cache_read": 0.5, "cache_write": 6.25}),
+    (r"claude-sonnet-5", {"input": 2, "output": 10, "cache_read": 0.2, "cache_write": 2.5}),
+    (r"claude-sonnet", {"input": 3, "output": 15, "cache_read": 0.3, "cache_write": 3.75}),
+    (r"claude-haiku-5", {"input": 0.1, "output": 0.5, "cache_read": 0.01, "cache_write": 0.125}),
+    (r"claude-haiku", {"input": 1, "output": 5, "cache_read": 0.1, "cache_write": 1.25}),
+    (r"deepseek.*pro", {"input": 1.74, "output": 3.48, "cache_read": 0.145}),
+    (r"deepseek", {"input": 0.14, "output": 0.28, "cache_read": 0.028}),
+]
+
+
+def price_for(model, user):
+    """(price dict, 'custom' | 'default' | None). A price the user entered for the vendor wins over the list price."""
+    if user and user.get("input") is not None:
+        return user, "custom"
+    for pattern, price in DEFAULT_PRICES:
+        if re.search(pattern, str(model or ""), re.I):
+            return {**price, "currency": "USD"}, "default"
+    return None, None
+
+
+def _msg_cost(price, inp, out, cr, cw):
+    i = float(price["input"])
+    rate = {"input": i, "output": float(price.get("output") if price.get("output") is not None else i),
+            "cache_read": float(price.get("cache_read") if price.get("cache_read") is not None else i * 0.1),
+            "cache_write": float(price.get("cache_write") if price.get("cache_write") is not None else i * 1.25)}
+    return (inp * rate["input"] + out * rate["output"] + cr * rate["cache_read"] + cw * rate["cache_write"]) / 1e6
+
+
 def dsh_snapshot():
     """Everything the DeepSeek Harness block needs; present=False hides it on machines without DSH."""
     files = dsh_files()
@@ -1530,42 +1585,49 @@ def dsh_snapshot():
            "key_env": _dsh_api_env_name(), "balance": None, "cmd": self_cmd()}
     if not present:
         return out
+    config = read_json(CONFIG_FILE) or {}
     now = time.time()
     today, week = local_day(now), {local_day(now - i * 86400) for i in range(7)}
     month = local_day(now)[:7]
+    blank = lambda: {"today": 0, "week": 0, "month": 0, "all": 0, "c_month": 0.0, "c_all": 0.0, "priced": 0, "sources": set(), "cur": None}
     acc = {}
     for path in files.values():
         if now - path.stat().st_mtime > 400 * 86400:
             continue
         s = parse_dsh_session(path)
-        for ts, prov, _model, inp, out_t, cr, cw in (s or {}).get("msgs", []):
+        for ts, prov, model, inp, out_t, cr, cw in (s or {}).get("msgs", []):
             prov = "deepseek" if str(prov).startswith("deepseek") else prov     # account login and API key bill the same account
-            a = acc.setdefault(prov or "?", {"today": 0, "week": 0, "month": 0, "all": 0,
-                                           "split": {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0}, "msplit": {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0}})
+            a = acc.setdefault(prov or "?", blank())
             tot = inp + out_t + cr + cw
             a["all"] += tot
-            for k, v in zip(("input", "output", "cache_read", "cache_write"), (inp, out_t, cr, cw)):
-                a["split"][k] += v
+            price, src = price_for(model, (config.get("dsh_prices") or {}).get(prov))
+            cost = _msg_cost(price, inp, out_t, cr, cw) if price else None
+            if cost is not None:
+                a["priced"] += 1
+                a["sources"].add(src)
+                a["cur"] = a["cur"] or price.get("currency")
+                a["c_all"] += cost
             if ts:
                 d = local_day(ts)
                 a["today"] += tot if d == today else 0
                 a["week"] += tot if d in week else 0
                 if d[:7] == month:
                     a["month"] += tot
-                    for k, v in zip(("input", "output", "cache_read", "cache_write"), (inp, out_t, cr, cw)):
-                        a["msplit"][k] += v
-    config = read_json(CONFIG_FILE) or {}
+                    a["c_month"] += cost or 0.0
     for pid in dsh_configured_providers():
-        acc.setdefault(pid, {"today": 0, "week": 0, "month": 0, "all": 0,
-                             "split": {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0}, "msplit": {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0}})
+        acc.setdefault(pid, blank())
     rank = lambda pid: (DSH_ORDER.index(pid) if pid in DSH_ORDER else len(DSH_ORDER), pid)
     for pid, a in sorted(acc.items(), key=lambda kv: rank(kv[0])):
-        price = _dsh_price(pid)
+        user_price = (config.get("dsh_prices") or {}).get(pid)
+        sample = {"deepseek": "deepseek", "anthropic": "claude-sonnet-5-5"}.get(pid)
+        known = a["priced"] > 0 or (not a["all"] and (user_price or price_for(sample, None)[0]))   # a configured vendor with no usage yet is "$0", not unknown
+        cur = a["cur"] or (user_price or {}).get("currency") or ("USD" if pid in ("deepseek", "anthropic") else "USD")
         card = {"id": pid, "name": DSH_LABELS.get(pid) or provider_name(pid),
                 "tokens": {k: a[k] for k in ("today", "week", "month", "all")},
-                "price": price, "credit_cfg": (config.get("dsh_credit") or {}).get(pid), "currency": (price or {}).get("currency") or ("CNY" if pid.startswith("deepseek") else "USD"),
-                "cost_month": _cost(a["msplit"], price), "cost_all": _cost(a["split"], price)}
-        credit = (config.get("dsh_credit") or {}).get(pid)
+                "price": user_price, "price_source": "custom" if "custom" in a["sources"] or (user_price and not a["sources"]) else ("default" if a["sources"] else ("default" if known else None)),
+                "credit_cfg": (config.get("dsh_credit") or {}).get(pid), "currency": cur,
+                "cost_month": a["c_month"] if known else None, "cost_all": a["c_all"] if known else None}
+        credit = card["credit_cfg"]
         if credit and card["cost_all"] is not None:
             card["credit"] = credit
             card["remaining"] = max(0.0, float(credit) - card["cost_all"])
@@ -1625,8 +1687,11 @@ def calls_snapshot(codex_sessions, opencode_sessions):
         selection = task.get("native_options") or {}
         model_raw, effort_raw, route = task.get("model") or selection.get("model"), task.get("effort") or selection.get("variant"), None
         if task["provider"] == "dsh":
+            wp, wm, we = dsh_call_config(dsh, created, finished)      # what DSH really ran for this call
             prov, model_raw, eff = dsh_model(model_raw, dsh)
-            effort_raw, route = effort_raw or eff, dsh_route(prov)
+            if wm:
+                prov, model_raw = wp or prov, wm
+            effort_raw, route = we or effort_raw or eff, dsh_route(prov)
             if prov and not str(prov).startswith("deepseek"):
                 model_raw = f"{prov}/{model_raw}"        # a non-DeepSeek model run through DSH keeps its vendor visible
         calls.append({
@@ -1988,6 +2053,24 @@ def set_dsh_config(args):
     return 0
 
 
+def dsh_calls_debug():
+    codex_sessions, _ = codex_snapshot()
+    for task, info in _inspect_all():
+        if task["provider"] != "dsh":
+            continue
+        sess = dsh_session(info.get("native_session_id")) if info.get("native_session_id") else None
+        created = iso_to_ts(task.get("created_at"))
+        finished = iso_to_ts((info.get("result") or {}).get("finished_at"))
+        sel = task.get("native_options") or {}
+        row = {"name": (task.get("communication") or {}).get("name"), "at": datetime.fromtimestamp(created).strftime("%m-%d %H:%M") if created else None,
+               "autoswarm": {"model": task.get("model") or sel.get("model"), "effort": task.get("effort") or sel.get("variant")},
+               "session_found": bool(sess), "session_last": {"model": (sess or {}).get("model"), "effort": (sess or {}).get("effort")} if sess else None,
+               "this_call": dict(zip(("provider", "model", "effort"), dsh_call_config(sess, created, finished))) if sess else None,
+               "headers_seen": [(h[1], h[2], h[3]) for h in (sess or {}).get("headers", [])][-4:]}
+        print(json.dumps(row, ensure_ascii=False))
+    return 0
+
+
 def find_desktop():
     print("Searching AppData for Claude Desktop's plan-usage-history.json (up to a minute)...", flush=True)
     files = list(dict.fromkeys(desktop_history_files()[1] + wide_search(limit=60.0, depth=8)))
@@ -2032,6 +2115,7 @@ def main():
     parser.add_argument("--deepseek-total", nargs=2, metavar=("CURRENCY", "TOTAL"),
                         help="everything ever credited to DeepSeek (top-ups + grants), to show an exact used amount")
     parser.add_argument("--currency", default=None, help="with --dsh-price: currency the prices are in")
+    parser.add_argument("--dsh-calls", action="store_true", help="show, per DSH dispatch, the model/effort AutoSwarm recorded vs what the session shows")
     parser.add_argument("--find-desktop", action="store_true",
                         help="search this PC for Claude Desktop's usage file and remember where it is")
     parser.add_argument("--quota-debug", action="store_true",
@@ -2047,6 +2131,8 @@ def main():
         return quota_debug()
     if args.find_desktop:
         return find_desktop()
+    if args.dsh_calls:
+        return dsh_calls_debug()
     if args.dsh_price or args.dsh_credit or args.deepseek_total:
         return set_dsh_config(args)
     if args.calibrate is not None:
