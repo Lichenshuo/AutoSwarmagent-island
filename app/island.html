@@ -332,8 +332,8 @@ function dshTile(p, ds) {
   } else if (p.cost_all != null) {
     pct = p.remaining != null && p.credit_cfg ? Math.round(p.remaining / p.credit_cfg * 100) : null;
     value = '≈' + money(p.remaining != null ? p.remaining : p.cost_all, p.currency);
-    line = p.remaining != null ? `已用≈${strong(money(p.cost_all, p.currency))}` : '累计已用（估算）';
-    hint = `${p.name}：DSH 记录的 token × 你填的单价，估算`;
+    line = p.remaining != null ? `已用≈${strong(money(p.cost_all, p.currency))}` : `累计已用</div><div class="line num" style="color:var(--orange);line-height:1.35">点此看剩余`;
+    hint = p.remaining != null ? `${p.name}：估算剩余 = 充值总额 − DSH 记录的 token × 单价` : `${p.name}：这是累计已用的估算（DSH 只记 token，不记金额）。想看剩余：${p.id === 'deepseek' ? '接入 DeepSeek API 密钥读官方余额，或' : ''}在仪表盘填一次充值总额`;
   } else {
     value = p.tokens.all ? tok(p.tokens.today) : '0'; line = p.tokens.all ? '点此填单价看金额' : '还没有用量'; warn = !!p.tokens.all;
     hint = p.id === 'deepseek' && !ds.key_from ? '没有金额：打开仪表盘填一次单价，或接入 DeepSeek API 密钥读余额' : '没有金额：打开仪表盘填一次每百万 token 的单价';
