@@ -77,11 +77,15 @@ powershell -ExecutionPolicy Bypass -File "$HOME\.claude\skills\agent-island\inst
 | 派活记录 | AutoSwarm 的调用记录（含 Claude 桌面端 MSIX 重定向目录），状态由 AutoSwarm 自己判定 |
 | 主 agent 会话 | `~/.claude/projects` 下的会话记录（按消息 ID 去重） |
 
+## 第一次用：让读数更准
+
+打开仪表盘，顶部如果有「让读数更准」，就是还有设置没做完，照着每一项的命令做即可；全部做完这一块会自动消失。灵动岛底部也会有橙色的「N 项可让读数更准」，点一下直接打开。
+
 ## DSH（DeepSeek Harness）额度
 
 检测到 `~/.dsh`（或 `DSH_HOME`）才会出现，没有 DSH 的电脑完全不显示。DSH 接入了哪些厂商（读 DSH 配置里的 `providers`，比如 DeepSeek、Claude、OpenAI / Codex），就各出一份金额：仪表盘「API 额度」每个厂商一张卡，灵动岛上订阅额度（Claude、Codex）下面单独一行 API，每个厂商一格。DSH 里没接的厂商不显示。
 
-- **DeepSeek API**：接了密钥就显示账户余额（含赠送/充值拆分）和已使用金额，精确。没接时卡片会告诉你怎么接。
+- **DeepSeek**：要**给灵动岛单独建一把 API 密钥**才能读到精确余额（DSH 自己管理的那把读不出来）：DeepSeek 开放平台 → API keys → 创建 → 复制，再运行 `setx DEEPSEEK_API_KEY "密钥"` 并重启灵动岛。接上后圆环显示剩余百分比，旁边是剩余金额和已用金额；圆环的总数是「剩余 + 自开始记录起花掉的」，填过累计充值额就按真实总额算。没接时会在「让读数更准」里提醒。
 - **账号登录和 API 密钥**：DeepSeek 只有 API 计费，两种登录方式的用量合并成一张卡；仪表盘和岛上的模型旁会标注这一轮是哪种登录。
 - **Claude / OpenAI 等**：没有金额接口，按 token 估算，金额前带 ≈。内置了 Claude 和 DeepSeek 的公开标价作为参考（按每条消息实际用的模型算，DeepSeek 为美元标价），不用设置也能看到大概金额；想更准，一次性设置自己的单价（每百万 token，美元；缓存价可不填，不填按输入价算，会偏高）：
 
@@ -133,7 +137,8 @@ app/statusline.py   可选：Claude Code 终端状态栏，顺带记录额度
 - 有 DSH 时，原来基于 OpenCode 的 Claude API 卡片不再显示（API 额度统一走 DSH）
 - 仪表盘里可以直接点「填单价」弹窗设置，不用命令行
 - DSH 派活记录的模型和思考档位，按这一次派活时 DSH 实际运行的配置显示（不再用整个会话最后一次的设置）；`server.py --dsh-calls` 可对比 AutoSwarm 记录和会话里的实际值
-- 灵动岛展开后所有圆环排成一行、对齐；没有金额接口的厂商也显示大概金额
+- 灵动岛展开后圆环排成一行、对齐：DeepSeek 有真实余额时画成圆环（剩余百分比、剩余金额、已用金额）；没有余额接口的第三方厂商（Claude、OpenAI 等）不画圆环，只显示已用金额的小标签
+- 新增「让读数更准」清单：仪表盘顶部列出还能做的设置（Claude 终端登录、Codex 网络、DSH 解压组件、DeepSeek API 密钥……），每项附带带你本机路径的现成命令；灵动岛底部有提示，点一下打开
 - 新增依赖 `zstandard`（读 DSH 会话），装不上只缺 DSH 的 token 统计
 
 ### 0.002

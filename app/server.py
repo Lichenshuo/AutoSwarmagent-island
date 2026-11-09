@@ -1521,10 +1521,12 @@ def deepseek_balance(key):
             t["spent"] += t["last_total"] - total        # a drop is spending; a rise is a top-up and is ignored
         t["last_total"] = total
         total_in = totals.get(cur)
-        rows.append({"currency": cur, "total": total, "granted": granted, "topped_up": topped,
-                     "used": max(0.0, total_in - total) if total_in else t["spent"],
+        used = max(0.0, total_in - total) if total_in else t["spent"]
+        ring_total = total_in if total_in else total + t["spent"]     # everything seen so far: what is left + what was spent
+        rows.append({"currency": cur, "total": total, "granted": granted, "topped_up": topped, "used": used,
                      "used_source": "total" if total_in else "tracked", "since": None if total_in else t["first_at"],
-                     "credit_total": total_in})
+                     "credit_total": total_in, "ring_total": ring_total,
+                     "remaining_pct": round(max(0.0, min(100.0, total / ring_total * 100))) if ring_total > 0 else None})
     try:
         DATA.mkdir(parents=True, exist_ok=True)
         tmp = BALANCE_FILE.with_suffix(".tmp")
@@ -1856,6 +1858,52 @@ def delegation_summary(calls):
     return {"totals": totals, "agents": sorted(agents.values(), key=lambda a: a["last_at"] or 0, reverse=True)}
 
 
+def setup_items(claude, codex, dsh):
+    """What the user can still do to make the readings accurate: [{id, level: ok|warn|info, title, detail, cmd?, link?}]."""
+    items = []
+    src = (claude or {}).get("source")
+    err = (claude or {}).get("live_error")
+    if src == "oauth" and not err:
+        items.append({"id": "claude", "level": "ok", "title": "Claude 额度：实时读取"})
+    elif err in ("token_expired", "no_login"):
+        items.append({"id": "claude", "level": "warn", "title": "Claude 终端登录" + ("已过期" if err == "token_expired" else "还没做"),
+                      "detail": "在终端登录一次，灵动岛之后会自动续期，额度才是实时的。", "cmd": "claude auth login"})
+    elif src == "desktop":
+        items.append({"id": "claude", "level": "info", "title": "Claude 额度来自桌面端记录",
+                      "detail": "可能不是最新，也没有重置倒计时。在终端登录 Claude Code 后变成实时。", "cmd": "claude auth login"})
+    elif (claude or {}).get("desktop_missing"):
+        items.append({"id": "claude", "level": "warn", "title": "没找到 Claude 桌面端的用量数据",
+                      "detail": "先在 Claude 桌面端打开 设置 → 用量，等一分钟；还没有就运行这条，它会自动找到并记住位置。", "cmd": claude.get("find_cmd")})
+    else:
+        items.append({"id": "claude", "level": "warn", "title": "读不到 Claude 额度", "detail": "打开 Claude 桌面端，或在终端登录 Claude Code。", "cmd": "claude auth login"})
+    cerr = (codex or {}).get("live_error")
+    if cerr:
+        text = {"codex_missing": "没找到 codex 命令行，额度可能不是最新。"}.get(cerr, "Codex 实时读取失败，暂用上次运行的记录；多半是网络或代理问题，悬停橙色提示看原因。")
+        items.append({"id": "codex", "level": "warn", "title": "Codex 额度不是实时的", "detail": text})
+    else:
+        items.append({"id": "codex", "level": "ok", "title": "Codex 额度：实时读取"})
+    if (dsh or {}).get("present"):
+        if not dsh.get("zstd"):
+            exe = Path(sys.executable)
+            exe = exe.with_name("python.exe") if exe.name.lower() == "pythonw.exe" and exe.with_name("python.exe").exists() else exe
+            items.append({"id": "zstd", "level": "warn", "title": "读不到 DSH 的用量记录（缺少解压组件）",
+                          "detail": "在灵动岛的环境里装一次 zstandard，装完刷新即可。", "cmd": f'uv pip install --python "{exe}" zstandard'})
+        bal = dsh.get("balance")
+        if bal and bal.get("ok"):
+            items.append({"id": "deepseek", "level": "ok", "title": "DeepSeek 余额：官方接口，精确"})
+        elif bal and not bal.get("ok"):
+            items.append({"id": "deepseek", "level": "warn", "title": "DeepSeek 余额读取失败",
+                          "detail": {"invalid_key": "密钥无效，重新创建一把并更新环境变量。", "network": "连不上 api.deepseek.com，检查网络或代理。"}.get(bal.get("error"), "错误：" + str(bal.get("error")))})
+        else:
+            items.append({"id": "deepseek", "level": "warn", "title": "接入 DeepSeek API 密钥，才能显示精确的余额",
+                          "detail": "DSH 自己管理的那把密钥读不出来，要给灵动岛单独建一把（同一账户，不多收费）：1) 打开 DeepSeek 开放平台的 API keys，点“创建 API key”并立刻复制；2) 在 PowerShell 运行下面这条；3) 退出灵动岛后重开。密钥只发给 api.deepseek.com。",
+                          "cmd": 'setx DEEPSEEK_API_KEY "把密钥粘在这里"', "link": "https://platform.deepseek.com/api_keys"})
+        if any(p.get("price_source") == "default" for p in dsh.get("providers", [])):
+            items.append({"id": "price", "level": "info", "title": "Claude / DeepSeek 的金额按公开标价估算",
+                          "detail": "想更准，在仪表盘「API 额度」卡片里填你的实际单价和充值总额。DeepSeek 的参考价是美元标价，账户是人民币的话建议改。"})
+    return items
+
+
 def snapshot():
     # Quotas and spend change slowly; delegation state is read fresh every time.
     codex_sessions, codex_limits = cached("codex", 20, codex_snapshot)
@@ -1867,16 +1915,18 @@ def snapshot():
         c["dismissed"] = c["call_id"] in dismissed
     today = local_day(time.time())
     real = [c for c in calls if not c["probe"]]
+    claude_now, dsh_now = cached("claude", 10, claude_snapshot), cached("dsh", 20, dsh_snapshot)
     return {
         "generated_at": time.time(),
-        "claude": cached("claude", 10, claude_snapshot),
+        "setup": setup_items(claude_now, codex_limits, dsh_now),
+        "claude": claude_now,
         "codex": codex_limits,
         "api": api,
         "calls": calls,
         "dismissed": sorted(dismissed),
         "restart_needed": restart_needed(),
         "delegation": delegation_summary(calls),
-        "dsh": cached("dsh", 20, dsh_snapshot),
+        "dsh": dsh_now,
         "summary": {
             "calls_today": sum(1 for c in real if c["created_at"] and local_day(c["created_at"]) == today),
             "running": sum(1 for c in real if c["state"] == "running"),

@@ -141,6 +141,14 @@ h2{font-size:clamp(20px,3.4vw,26px);font-weight:700;letter-spacing:-0.02em;line-
   padding:14px clamp(17px,3vw,24px);cursor:pointer;transition:background .15s}
 .arow + .arow{border-top:1px solid var(--hairline)}
 .cmd{margin:8px 0 0;padding:8px 10px;background:var(--hover);border-radius:8px;font:12px/1.5 ui-monospace,Consolas,monospace;white-space:pre-wrap;word-break:break-all;cursor:copy;user-select:all}
+.setup-item{display:grid;grid-template-columns:14px minmax(0,1fr);gap:4px 12px;padding:16px clamp(17px,3vw,24px)}
+.setup-item + .setup-item{border-top:1px solid var(--hairline)}
+.setup-item .sd{width:8px;height:8px;border-radius:50%;margin-top:7px;background:var(--text-3)}
+.setup-item.warn .sd{background:var(--heat)}
+.setup-item h4{font-size:14.5px;font-weight:600}
+.setup-item p{font-size:13px;color:var(--text-2);margin-top:3px;line-height:1.55}
+.setup-item .cmd{margin-top:8px}
+.setup-item a{color:var(--accent)}
 .idle-toggle{display:flex;align-items:center;gap:8px;width:100%;padding:12px clamp(17px,3vw,24px);border:0;border-top:1px solid var(--hairline);background:none;color:var(--text-2);font:inherit;font-size:13px;font-weight:550;cursor:pointer;text-align:left}
 .idle-toggle:hover{background:var(--hover)}
 .idle-toggle i{display:inline-block;width:7px;height:7px;border-right:2px solid currentColor;border-bottom:2px solid currentColor;transform:rotate(-45deg);transition:transform .2s}
@@ -207,6 +215,13 @@ footer{margin:clamp(48px,8vw,80px) 0 40px;font-size:12px;color:var(--text-3);lin
     <div class="eyebrow"><span class="dot"></span>AUTOSWARM · 实时</div>
     <h1>协作总览</h1>
     <p class="lede num" id="lede">&nbsp;</p>
+  </section>
+
+  <section class="block" id="setup-block" hidden>
+    <div class="block-head">
+      <div><h2>让读数更准</h2><p class="sub">做完这几项，额度和金额会更准确；每项都附了现成的命令，点一下就能复制</p></div>
+    </div>
+    <div class="panel" id="setup-list"></div>
   </section>
 
   <section class="block">
@@ -441,7 +456,7 @@ function renderDsh(d) {
   if (bal?.ok && bal.rows.length) {
     for (const r of bal.rows) {
       cards.push(dshCard('DeepSeek API', 'DSH · 官方余额接口', 'API 密钥', money(r.total, r.currency),
-        `账户余额（赠送 ${money(r.granted, r.currency)} · 充值 ${money(r.topped_up, r.currency)}）${bal.available === false ? ' · <span class="warn-text">余额不足，API 暂不可用</span>' : ''}`,
+        `账户余额${r.remaining_pct != null ? ' · 剩余 ' + r.remaining_pct + '%' : ''}（赠送 ${money(r.granted, r.currency)} · 充值 ${money(r.topped_up, r.currency)}）${bal.available === false ? ' · <span class="warn-text">余额不足，API 暂不可用</span>' : ''}`,
         [[r.used_source === 'total' ? `已使用（累计充值 ${money(r.credit_total, r.currency)}）` : `已使用（${r.since ? dayLabel(r.since) + '起' : '自开始记录'}）`, money(r.used, r.currency)],
          ...(dsApi ? dshTokRows(dsApi) : [])],
         r.used_source === 'total' ? '余额由 DeepSeek 官方接口读取，精确' : `已使用按余额下降累计 <button class="link-btn" data-dshprice="deepseek">填累计充值额，更精确</button>`));
@@ -476,6 +491,16 @@ function renderDsh(d) {
   if (!ds.zstd) cards.push(dshCard('读不到 DSH 会话', '缺少解压组件', '需要安装', '—', '没法统计 token', [],
     `在灵动岛的环境里装一次：<br>${cmdBox('uv pip install --python "' + (ds.cmd.match(/"([^"]+python[^"]*)"/) || [, ''])[1] + '" zstandard')}`));
   $('#dsh-cards').innerHTML = cards.join('') || '<div class="panel"><div class="empty">还没有 DSH 用量</div></div>';
+}
+
+
+function renderSetup(d) {
+  const items = (d.setup || []).filter(i => i.level !== 'ok').sort((a, b) => (a.level === 'warn' ? 0 : 1) - (b.level === 'warn' ? 0 : 1));
+  $('#setup-block').hidden = !items.length;
+  $('#setup-list').innerHTML = items.map(i => `<div class="setup-item ${i.level}"><span class="sd"></span><div>
+    <h4>${esc(i.title)}</h4>${i.detail ? `<p>${esc(i.detail)}</p>` : ''}
+    ${i.link ? `<p><a href="${esc(i.link)}" target="_blank" rel="noopener">打开 ${esc(i.link.replace(/^https?:\/\//, ''))}</a></p>` : ''}
+    ${i.cmd ? cmdBox(i.cmd) : ''}</div></div>`).join('');
 }
 
 function renderCards(d) {
@@ -623,6 +648,7 @@ function render() {
   const nBad = d.calls.filter(c => !c.probe && (c.state === 'waiting' || needsLook(c))).length;
   $('#bad-n').textContent = nBad ? ' ' + nBad : '';
   $('#seg-dsh').hidden = !d.calls.some(c => c.provider === 'dsh');
+  renderSetup(d);
   renderCards(d);
   renderDsh(d);
   renderOverview(d);
@@ -775,6 +801,7 @@ $('#dshd-form').addEventListener('submit', async e => {
     $('#dshd-save').disabled = false;
   }
 });
+if (location.hash === '#setup') { history.replaceState(null, '', location.pathname); load().then(() => $('#setup-block').scrollIntoView({ block: 'start' })); }
 if (location.hash === '#dsh') { history.replaceState(null, '', location.pathname); load().then(() => $('#dsh-block').scrollIntoView({ block: 'start' })); }
 
 if (location.hash === '#calibrate') {
