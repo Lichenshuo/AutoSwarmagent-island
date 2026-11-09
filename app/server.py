@@ -1276,7 +1276,8 @@ DSH_SESSION_FILE = "session.v4.jsonl.zstd"
 DEEPSEEK_BALANCE_URL = "https://api.deepseek.com/user/balance"
 _dsh_cache = {}
 _dsh_lock = threading.Lock()
-DSH_LABELS = {"deepseek": "DeepSeek", "anthropic": "Claude API", "openai": "OpenAI API"}
+DSH_LABELS = {"deepseek": "DeepSeek", "anthropic": "Claude", "openai": "OpenAI / Codex"}
+DSH_ORDER = ["deepseek", "anthropic", "openai"]
 
 
 def _zstd_decompress(data):
@@ -1411,6 +1412,35 @@ def _cost(split, price):
     return sum(split.get(k, 0) * rate[k] for k in rate) / 1e6
 
 
+def dsh_configured_providers():
+    """Vendors DSH is routed to, read from its profile config: providers → <vendor>, plus the default model's provider."""
+    found = set()
+    for f in sorted(DSH_HOME.glob("profiles/*/*.yml")) if DSH_HOME.is_dir() else []:
+        try:
+            lines = f.read_text(encoding="utf-8", errors="ignore").splitlines()
+        except OSError:
+            continue
+        for i, line in enumerate(lines):
+            m = re.match(r"^\s*provider:\s*['\"]?([A-Za-z0-9_-]+)", line)
+            if m:
+                found.add(m.group(1))
+            m = re.match(r"^(\s*)providers:\s*$", line)
+            if not m:
+                continue
+            base, child = len(m.group(1)), None
+            for nxt in lines[i + 1:]:
+                if not nxt.strip() or nxt.lstrip().startswith("#"):
+                    continue
+                ind = len(nxt) - len(nxt.lstrip())
+                if ind <= base:
+                    break
+                child = child if child is not None else ind
+                k = re.match(r"^\s*([A-Za-z0-9_-]+):\s*$", nxt)
+                if k and ind == child:
+                    found.add(k.group(1))
+    return {"deepseek" if p.startswith("deepseek") else p for p in found}
+
+
 def _dsh_api_env_name():
     """The environment variable DSH is told to read the DeepSeek key from (providers → deepseek → apiKeyEnv)."""
     for f in sorted(DSH_HOME.glob("profiles/*/*.yml")) if DSH_HOME.is_dir() else []:
@@ -1525,11 +1555,15 @@ def dsh_snapshot():
                     for k, v in zip(("input", "output", "cache_read", "cache_write"), (inp, out_t, cr, cw)):
                         a["msplit"][k] += v
     config = read_json(CONFIG_FILE) or {}
-    for pid, a in sorted(acc.items(), key=lambda kv: -kv[1]["week"]):
+    for pid in dsh_configured_providers():
+        acc.setdefault(pid, {"today": 0, "week": 0, "month": 0, "all": 0,
+                             "split": {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0}, "msplit": {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0}})
+    rank = lambda pid: (DSH_ORDER.index(pid) if pid in DSH_ORDER else len(DSH_ORDER), pid)
+    for pid, a in sorted(acc.items(), key=lambda kv: rank(kv[0])):
         price = _dsh_price(pid)
         card = {"id": pid, "name": DSH_LABELS.get(pid) or provider_name(pid),
                 "tokens": {k: a[k] for k in ("today", "week", "month", "all")},
-                "price": price, "currency": (price or {}).get("currency") or ("CNY" if pid.startswith("deepseek") else "USD"),
+                "price": price, "credit_cfg": (config.get("dsh_credit") or {}).get(pid), "currency": (price or {}).get("currency") or ("CNY" if pid.startswith("deepseek") else "USD"),
                 "cost_month": _cost(a["msplit"], price), "cost_all": _cost(a["split"], price)}
         credit = (config.get("dsh_credit") or {}).get(pid)
         if credit and card["cost_all"] is not None:
@@ -1819,7 +1853,7 @@ class Handler(BaseHTTPRequestHandler):
         # Only the dashboard on this machine may write: reject cross-site requests from other pages.
         origin = self.headers.get("Origin")
         host = self.headers.get("Host", "")
-        if self.path not in ("/api/calibrate", "/api/dismiss"):
+        if self.path not in ("/api/calibrate", "/api/dismiss", "/api/dsh-config"):
             return self._send(b"not found", "text/plain", 404)
         if host.split(":")[0] not in ("127.0.0.1", "localhost") or (
                 origin and origin.split("://")[-1].split(":")[0] not in ("127.0.0.1", "localhost")) or \
@@ -1835,6 +1869,9 @@ class Handler(BaseHTTPRequestHandler):
                     add += [c["call_id"] for c in snapshot()["calls"] if not c["probe"] and unresolved(c)]
                 kept = set_dismissed(add=add, remove=ids("restore"), clear=bool(body.get("restore_all")))
                 return self._send(json.dumps({"added": add, "dismissed": len(kept)}).encode(), "application/json; charset=utf-8")
+            if self.path == "/api/dsh-config":
+                save_dsh_config(str(body.get("provider") or ""), body.get("price"), body.get("credit"), body.get("currency"))
+                return self._send(b'{"ok":true}', "application/json")
             opt = lambda k: None if body.get(k) in (None, "") else float(body[k])
             provider = str(body.get("provider") or "anthropic")[:60]
             result = calibrate(float(body["balance"]), opt("month_spend"), opt("total"), provider)
@@ -1901,27 +1938,53 @@ def start_server(port=PORT):
     return server
 
 
-def set_dsh_config(args):
+def save_dsh_config(pid, price=None, credit=None, currency=None):
+    """Remember a provider's per-million-token prices and/or the money credited to it (one-time setup)."""
+    import math
+    if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,40}", str(pid)):
+        raise ValueError("bad provider id")
+    num = lambda v: None if v in (None, "") else float(v)
     config = read_json(CONFIG_FILE) or {}
+    cur = (currency or "").upper() or None
+    if price:
+        p = {k: num(price.get(k)) for k in ("input", "output", "cache_read", "cache_write")}
+        p = {k: v for k, v in p.items() if v is not None}
+        if any(not math.isfinite(v) or v < 0 for v in p.values()) or "input" not in p:
+            raise ValueError("input price is required and prices must be >= 0")
+        if cur:
+            p["currency"] = cur
+        config.setdefault("dsh_prices", {})[pid] = p
+    if credit not in (None, ""):
+        c = float(credit)
+        if not math.isfinite(c) or c < 0:
+            raise ValueError("credit must be >= 0")
+        config.setdefault("dsh_credit", {})[pid] = c
+        if pid == "deepseek":
+            config.setdefault("deepseek_total", {})[cur or "CNY"] = c
+    tmp = CONFIG_FILE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(tmp, CONFIG_FILE)
+    with _ttl_lock:
+        _ttl_cache.pop("dsh", None)
+        for k in [k for k in _ttl_cache if str(k).startswith("deepseek-balance")]:
+            _ttl_cache.pop(k, None)
+    return config
+
+
+def set_dsh_config(args):
     if args.dsh_price:
         pid, nums = args.dsh_price[0], [float(x) for x in args.dsh_price[1:]]
         if len(nums) < 2:
             print("need at least INPUT and OUTPUT price per million tokens")
             return 2
-        price = dict(zip(("input", "output", "cache_read", "cache_write"), nums))
-        if args.currency:
-            price["currency"] = args.currency.upper()
-        config.setdefault("dsh_prices", {})[pid] = price
-        print(f"price for {pid}: {price}")
+        save_dsh_config(pid, dict(zip(("input", "output", "cache_read", "cache_write"), nums)), None, args.currency)
+        print(f"price for {pid} saved")
     if args.dsh_credit:
-        config.setdefault("dsh_credit", {})[args.dsh_credit[0]] = float(args.dsh_credit[1])
-        print(f"credit for {args.dsh_credit[0]}: {args.dsh_credit[1]}")
+        save_dsh_config(args.dsh_credit[0], None, args.dsh_credit[1], args.currency)
+        print(f"credit for {args.dsh_credit[0]} saved")
     if args.deepseek_total:
-        config.setdefault("deepseek_total", {})[args.deepseek_total[0].upper()] = float(args.deepseek_total[1])
-        print(f"DeepSeek total credited ({args.deepseek_total[0].upper()}): {args.deepseek_total[1]}")
-    tmp = CONFIG_FILE.with_suffix(".tmp")
-    tmp.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
-    os.replace(tmp, CONFIG_FILE)
+        save_dsh_config("deepseek", None, args.deepseek_total[1], args.deepseek_total[0])
+        print(f"DeepSeek total credited saved ({args.deepseek_total[0].upper()})")
     return 0
 
 

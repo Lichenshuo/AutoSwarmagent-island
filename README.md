@@ -79,7 +79,7 @@ powershell -ExecutionPolicy Bypass -File "$HOME\.claude\skills\agent-island\inst
 
 ## DSH（DeepSeek Harness）额度
 
-检测到 `~/.dsh`（或 `DSH_HOME`）才会出现，没有 DSH 的电脑完全不显示。仪表盘「DSH 额度」里每个模型厂商一张卡，岛上多一格 DeepSeek。
+检测到 `~/.dsh`（或 `DSH_HOME`）才会出现，没有 DSH 的电脑完全不显示。DSH 接入了哪些厂商（读 DSH 配置里的 `providers`，比如 DeepSeek、Claude、OpenAI / Codex），就各出一份金额：仪表盘「API 额度」每个厂商一张卡，灵动岛上订阅额度（Claude、Codex）下面单独一行 API，每个厂商一格。DSH 里没接的厂商不显示。
 
 - **DeepSeek API**：接了密钥就显示账户余额（含赠送/充值拆分）和已使用金额，精确。没接时卡片会告诉你怎么接。
 - **账号登录和 API 密钥**：DeepSeek 只有 API 计费，两种登录方式的用量合并成一张卡；仪表盘和岛上的模型旁会标注这一轮是哪种登录。
@@ -128,9 +128,10 @@ app/statusline.py   可选：Claude Code 终端状态栏，顺带记录额度
 每次发布都会在这里记一条，并打同名标签（`git tag`）。已装过的人 `git pull` 即可更新，更新后退出灵动岛再重开。
 
 ### 0.003
-- 新增 DSH（DeepSeek Harness）支持：仪表盘「DSH 额度」按厂商分卡，岛上多一格 DeepSeek；派活记录有 DSH 筛选，每轮显示 token、模型、思考档位，并标注登录方式（账号登录 / API 密钥，DeepSeek 用量合并计算）
+- 新增 DSH（DeepSeek Harness）支持：按 DSH 接入的厂商（DeepSeek / Claude / OpenAI 等）在仪表盘「API 额度」和灵动岛的 API 一行里分别显示金额；派活记录有 DSH 筛选，每轮显示 token、模型、思考档位，并标注登录方式（账号登录 / API 密钥，DeepSeek 用量合并计算）
 - DeepSeek 用官方余额接口读账户余额和已使用金额；Claude / OpenAI 等经 DSH 的按 token 估算（一次性填单价，不用定期校准）
-- 没有 OpenCode 数据时，不再显示原来的 Claude API 卡片
+- 有 DSH 时，原来基于 OpenCode 的 Claude API 卡片不再显示（API 额度统一走 DSH）
+- 仪表盘里可以直接点「填单价」弹窗设置，不用命令行
 - 新增依赖 `zstandard`（读 DSH 会话），装不上只缺 DSH 的 token 统计
 
 ### 0.002

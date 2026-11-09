@@ -58,6 +58,8 @@ html,body{background:transparent;overflow:hidden;font-family:var(--font);-webkit
 .tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
 .tile{display:flex;gap:11px;align-items:center;min-width:0;overflow:hidden}
 .tile > div:last-child{min-width:0;flex:1}
+.api-h{font-size:10.5px;font-weight:600;letter-spacing:.06em;color:var(--t3);margin:12px 0 6px}
+.tiles + .tiles{margin-top:0}
 .qnote{font-size:10.5px;color:var(--t3);line-height:1.3;margin:-1px 0 4px 14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .twarn{font-size:10.5px;line-height:1.3;color:var(--orange);margin-top:3px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .xline{font-size:11px;line-height:1.5;color:var(--t2);display:flex;justify-content:space-between;gap:6px;white-space:nowrap}
@@ -115,6 +117,8 @@ html,body{background:transparent;overflow:hidden;font-family:var(--font);-webkit
   </div>
   <div class="full">
     <div class="tiles" id="tiles"></div>
+    <div class="api-h" id="api-h" hidden>API · DSH 接入的厂商</div>
+    <div class="tiles" id="apitiles" hidden></div>
     <div class="hair"></div>
     <div class="lists" id="lists"></div>
     <div class="foot">
@@ -230,7 +234,10 @@ function compact(d) {
   if (bad) chips.push(`<span class="chip" style="color:var(--red)"><span class="dot r"></span>${bad} 异常</span>`);
   $('#c-chips').innerHTML = chips.join('') || '<span class="idle">空闲</span>';
   const b = d.api.billing || {};
-  $('#c-spend').innerHTML = b.remaining != null
+  const dp = d.dsh?.present ? (d.dsh.providers || []).find(p => p.id === 'deepseek') : null;
+  const dr = d.dsh?.balance?.ok ? d.dsh.balance.rows[0] : null;
+  if (d.dsh?.present) $('#c-spend').innerHTML = dr ? `DS ${money(dr.total, dr.currency)}` : dp?.cost_all != null ? `DS ≈${money(dp.remaining != null ? dp.remaining : dp.cost_all, dp.currency)}` : `DS ${tok(dp?.tokens?.today || 0)}`;
+  else $('#c-spend').innerHTML = b.remaining != null
     ? `<span style="color:${tone(b.remaining_pct)}">余 ${b.source === 'estimate' ? '≈' : ''}${usd(b.remaining)}</span>`
     : usd(d.api.today);
 }
@@ -286,27 +293,44 @@ function apiTile(a) {
 const CUR = { CNY: '¥', USD: '$' };
 const money = (v, cur) => v == null ? '—' : (CUR[cur] || (cur || '') + ' ') + (v >= 100 ? v.toFixed(0) : v.toFixed(2));
 const tok = n => n == null ? '—' : n < 1e4 ? String(n) : n < 1e8 ? (n / 1e4).toFixed(n < 1e5 ? 1 : 0) + '万' : (n / 1e8).toFixed(2) + '亿';
-/* DeepSeek Harness: the DeepSeek balance when an API key is set, otherwise today's tokens. Hidden without DSH. */
-function dshTile(ds) {
-  const r = ds.balance?.ok ? ds.balance.rows[0] : null;
-  const est = (ds.providers || []).find(p => p.id === 'deepseek' && p.cost_all != null) || (ds.providers || []).find(p => p.cost_all != null);
-  let value, line, pct = null, hint;
+/* DeepSeek Harness providers, one tile each: real balance where an API exists, otherwise a token-based estimate. */
+const dshLetter = id => ({ anthropic: '$', deepseek: 'D', openai: 'O' })[id] || id[0].toUpperCase();
+function dshTile(p, ds) {
+  const r = p.id === 'deepseek' && ds.balance?.ok ? ds.balance.rows[0] : null;
+  const strong = t => `<em style="color:var(--t1);font-weight:600">${t}</em>`;
+  let value, line, pct = null, hint, warn = false;
   if (r) {
-    pct = r.credit_total ? Math.round(r.total / r.credit_total * 100) : null;
-    value = money(r.total, r.currency); line = `已用<em style="color:var(--t1);font-weight:600">${money(r.used, r.currency)}</em>`;
+    pct = r.credit_total ? Math.max(0, Math.round(r.total / r.credit_total * 100)) : null;
+    value = money(r.total, r.currency); line = `已用${strong(money(r.used, r.currency))}`;
     hint = 'DeepSeek 官方余额接口，精确';
-  } else if (est) {
-    value = '≈' + money(est.remaining != null ? est.remaining : est.cost_all, est.currency);
-    line = est.remaining != null ? `已用≈<em style="color:var(--t1);font-weight:600">${money(est.cost_all, est.currency)}</em>` : '累计已使用（估算）';
-    hint = `${est.name}：DSH 记录的 token × 你填的单价，估算`;
+  } else if (p.cost_all != null) {
+    pct = p.remaining != null && p.credit_cfg ? Math.round(p.remaining / p.credit_cfg * 100) : null;
+    value = '≈' + money(p.remaining != null ? p.remaining : p.cost_all, p.currency);
+    line = p.remaining != null ? `已用≈${strong(money(p.cost_all, p.currency))}` : '累计已用（估算）';
+    hint = `${p.name}：DSH 记录的 token × 你填的单价，估算`;
   } else {
-    value = tok(ds.tokens_today || 0); line = ds.key_from ? '今日 token' : '今日 token · 未接密钥';
-    hint = ds.key_from ? '读不到 DeepSeek 余额，打开仪表盘看原因' : '还没接 DeepSeek API 密钥，只统计 token；接入后显示余额和已使用金额';
+    value = p.tokens.all ? tok(p.tokens.today) : '—'; line = p.tokens.all ? '点此填单价看金额' : '还没有用量'; warn = !!p.tokens.all;
+    hint = p.id === 'deepseek' && !ds.key_from ? '没有金额：打开仪表盘填一次单价，或接入 DeepSeek API 密钥读余额' : '没有金额：打开仪表盘填一次每百万 token 的单价';
   }
-  return `<div class="tile" title="${esc(hint)}">${creditRing(pct, 46, 'D')}<div><div class="tile-k">DeepSeek · DSH</div>
-    <div class="money num" style="color:${pct != null ? tone(pct) : 'var(--t1)'}">${value}</div><div class="line num" style="line-height:1.35">${line}</div></div></div>`;
+  return `<div class="tile dsh-tile" style="cursor:pointer" title="${esc(hint)}">${creditRing(pct, 46, dshLetter(p.id))}<div><div class="tile-k">${esc(p.name)}</div>
+    <div class="money num" style="color:${pct != null ? tone(pct) : 'var(--t1)'}">${value}</div><div class="line num" style="line-height:1.35;${warn ? 'color:var(--orange)' : ''}">${line}</div></div></div>`;
 }
-const showApiTile = d => !d.dsh?.present || (d.api.providers || []).some(p => p.total > 0) || (d.api.billing || {}).remaining != null;
+function renderTiles(d) {
+  const ds = d.dsh?.present ? d.dsh : null, subs = [quotaTile('Claude', d.claude, 'C'), quotaTile('Codex', d.codex, 'X')];
+  const top = $('#tiles'), row = $('#apitiles');
+  if (!ds) {                       // no DSH: the original three tiles in one row (old OpenCode-based API tile)
+    top.style.gridTemplateColumns = 'repeat(3,minmax(0,1fr))';
+    top.innerHTML = subs.join('') + apiTile(d.api);
+    row.hidden = $('#api-h').hidden = true;
+    return;
+  }
+  top.style.gridTemplateColumns = 'repeat(2,minmax(0,1fr))';
+  top.innerHTML = subs.join('');
+  const ps = ds.providers || [];
+  row.hidden = $('#api-h').hidden = !ps.length;
+  row.style.gridTemplateColumns = 'repeat(3,minmax(0,1fr))';
+  row.innerHTML = ps.map(p => dshTile(p, ds)).join('');
+}
 
 /* Row: [name chip] who · product · model · round / what it is doing / the task  [state, time] */
 function item(c) {
@@ -335,7 +359,7 @@ function item(c) {
 }
 
 function full(d) {
-  $('#tiles').innerHTML = quotaTile('Claude', d.claude, 'C') + quotaTile('Codex', d.codex, 'X') + (showApiTile(d) ? apiTile(d.api) : '') + (d.dsh?.present ? dshTile(d.dsh) : '');
+  renderTiles(d);
   const calls = d.calls.filter(c => !c.probe);
   const active = calls.filter(c => c.state === 'running' || c.state === 'waiting');
   const bad = alerts(calls);
@@ -377,7 +401,7 @@ function layout() {
   content.style.width = 'max-content';
   S.compactW = Math.min(OPEN_W, Math.ceil(content.scrollWidth) + 26);
   content.style.width = prev;
-  S.openH = Math.min(innerHeight - 20, Math.max(260, $('#tiles').offsetHeight + $('#lists').scrollHeight + 130));
+  S.openH = Math.min(innerHeight - 20, Math.max(260, $('#tiles').offsetHeight + ($('#apitiles').hidden ? 0 : $('#apitiles').offsetHeight + 28) + $('#lists').scrollHeight + 130));
   island.style.width = (S.open ? OPEN_W : S.compactW) + 'px';
   island.style.height = (S.open ? S.openH : COMPACT_H) + 'px';
   report();
@@ -454,7 +478,7 @@ island.addEventListener('dblclick', e => {
   if (!e.target.closest('button, .item, .lists, #api-tile')) api()?.reset_position();
 });
 $('#dash').addEventListener('click', () => api()?.open_dashboard());
-document.addEventListener('click', e => { if (e.target.closest('#api-tile')) api()?.open_dashboard('calibrate'); });
+document.addEventListener('click', e => { if (e.target.closest('#api-tile')) api()?.open_dashboard('calibrate'); else if (e.target.closest('.dsh-tile')) api()?.open_dashboard('dsh'); });
 $('#quit').addEventListener('click', () => api()?.quit());
 $('#lists').addEventListener('click', async e => {
   if (e.target.closest('#dismiss')) {

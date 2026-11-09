@@ -166,6 +166,7 @@ dialog.cal::backdrop{background:rgba(0,0,0,0.25);backdrop-filter:blur(6px);-webk
 dialog.cal h3{font-size:21px;font-weight:700;letter-spacing:-0.02em}
 dialog.cal p{font-size:13px;color:var(--text-2);margin-top:6px}
 dialog.cal label{display:block;margin-top:16px;font-size:12px;font-weight:600;color:var(--text-2)}
+dialog.cal select{width:100%;margin-top:6px;height:40px;padding:0 10px;border:1px solid var(--faint);border-radius:10px;background:var(--surface);color:var(--text);font:inherit;font-size:14px}
 dialog.cal input{width:100%;margin-top:6px;height:40px;padding:0 12px;border:1px solid var(--faint);border-radius:10px;
   font:inherit;font-size:16px;font-variant-numeric:tabular-nums;background:var(--bg);color:var(--text)}
 dialog.cal input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(0,113,227,0.18)}
@@ -217,7 +218,7 @@ footer{margin:clamp(48px,8vw,80px) 0 40px;font-size:12px;color:var(--text-3);lin
 
   <section class="block" id="dsh-block" hidden>
     <div class="block-head">
-      <div><h2>DSH 额度</h2><p class="sub">DeepSeek Harness 里各个模型厂商的剩余与已使用额度；没有金额接口的按 token 估算，带 ≈</p></div>
+      <div><h2>API 额度</h2><p class="sub">DSH（DeepSeek Harness）接入的各家厂商：剩余与已使用金额；没有金额接口的按 token 估算，带 ≈</p></div>
     </div>
     <div class="cards" id="dsh-cards"></div>
   </section>
@@ -260,6 +261,21 @@ footer{margin:clamp(48px,8vw,80px) 0 40px;font-size:12px;color:var(--text-3);lin
       <label>累计充值总额（可选，用于计算剩余比例）<input id="cal-total" type="number" step="0.01" min="0" inputmode="decimal" placeholder="例如 200"></label>
       <div class="msg num" id="cal-msg"></div>
       <div class="act"><button class="pill-btn" value="cancel" formnovalidate>取消</button><button class="pill-btn primary" id="cal-save" value="save">保存</button></div>
+    </form>
+  </dialog>
+
+  <dialog class="cal" id="dshd">
+    <form method="dialog" id="dshd-form">
+      <h3 id="dshd-title">设置单价</h3>
+      <p>金额 = DSH 记录的 token × 这里的单价。照着对应平台的价格页填「每百万 token」的价格，只用填一次。缓存价不填就按输入价算（会偏高）。</p>
+      <label>输入价（未命中缓存）<input id="dshd-input" type="number" step="0.0001" min="0" inputmode="decimal" placeholder="每百万 token"></label>
+      <label>输出价<input id="dshd-output" type="number" step="0.0001" min="0" inputmode="decimal" placeholder="每百万 token"></label>
+      <label>缓存命中价（可选）<input id="dshd-cr" type="number" step="0.0001" min="0" inputmode="decimal"></label>
+      <label>缓存写入价（可选）<input id="dshd-cw" type="number" step="0.0001" min="0" inputmode="decimal"></label>
+      <label>币种<select id="dshd-cur"><option value="CNY">人民币 ¥</option><option value="USD">美元 $</option></select></label>
+      <label>累计充值总额（可选，用来算已使用 / 剩余）<input id="dshd-credit" type="number" step="0.01" min="0" inputmode="decimal" placeholder="充值加赠送的总额"></label>
+      <div class="msg num" id="dshd-msg"></div>
+      <div class="act"><button class="pill-btn" value="cancel" formnovalidate>取消</button><button class="pill-btn primary" id="dshd-save" value="save">保存</button></div>
     </form>
   </dialog>
 
@@ -428,7 +444,7 @@ function renderDsh(d) {
         `账户余额（赠送 ${money(r.granted, r.currency)} · 充值 ${money(r.topped_up, r.currency)}）${bal.available === false ? ' · <span class="warn-text">余额不足，API 暂不可用</span>' : ''}`,
         [[r.used_source === 'total' ? `已使用（累计充值 ${money(r.credit_total, r.currency)}）` : `已使用（${r.since ? dayLabel(r.since) + '起' : '自开始记录'}）`, money(r.used, r.currency)],
          ...(dsApi ? dshTokRows(dsApi) : [])],
-        r.used_source === 'total' ? '余额由 DeepSeek 官方接口读取，精确' : `已使用按余额下降累计，想精确：<br>${cmdBox(ds.cmd + ' --deepseek-total ' + r.currency + ' 累计充值总额')}`));
+        r.used_source === 'total' ? '余额由 DeepSeek 官方接口读取，精确' : `已使用按余额下降累计 <button class="link-btn" data-dshprice="deepseek">填累计充值额，更精确</button>`));
     }
   } else if (ds.key_from && bal && !bal.ok) {
     cards.push(dshCard('DeepSeek', 'DSH · 官方余额接口', 'API 密钥', '—', `读不到余额：${{ invalid_key: '密钥无效', insufficient: '账户余额不足', rate_limited: '请求太频繁', network: '网络连不上 api.deepseek.com' }[bal.error] || esc(bal.error)}`,
@@ -436,10 +452,10 @@ function renderDsh(d) {
   } else if (dsApi) {
     const cur = dsApi.currency;
     cards.push(dshCard('DeepSeek', 'DSH · 账号登录与 API 密钥合计', '未接密钥',
-      dsApi.cost_all != null ? '≈' + money(dsApi.cost_all, cur) : tokens(dsApi.tokens.month),
-      dsApi.cost_all != null ? '累计已使用（按 token 估算）' : '本月 token · 接入 API 密钥后显示余额和已使用金额',
-      dshTokRows(dsApi),
-      `在系统里设置环境变量 <b>${esc(ds.key_env || 'DEEPSEEK_API_KEY')}</b>${ds.key_env ? '（DSH 配置里指定的名字）' : ''}，重启灵动岛即可，密钥只发给 api.deepseek.com`));
+      dsApi.cost_all != null ? '≈' + money(dsApi.remaining != null ? dsApi.remaining : dsApi.cost_all, cur) : tokens(dsApi.tokens.month),
+      dsApi.cost_all != null ? (dsApi.credit_cfg != null && dsApi.remaining != null ? `估算剩余（共 ${money(dsApi.credit_cfg, cur)}）` : '累计已使用（按 token 估算）') : '本月 token · 填单价或接入 API 密钥后显示金额',
+      [dsApi.cost_all != null ? ['已使用（估算）', '≈' + money(dsApi.cost_all, cur)] : null, ...dshTokRows(dsApi)],
+      `<button class="link-btn" data-dshprice="deepseek">${dsApi.cost_all != null ? '改单价/充值额' : '填单价看金额'}</button> · 或设置环境变量 <b>${esc(ds.key_env || 'DEEPSEEK_API_KEY')}</b>${ds.key_env ? '（DSH 配置里指定的名字）' : ''} 读官方余额，密钥只发给 api.deepseek.com`));
   }
   for (const p of ps) {
     if (p.id === 'deepseek') continue;
@@ -450,11 +466,11 @@ function renderDsh(d) {
       const cap = p.remaining != null ? `估算剩余（共 ${money(p.credit, cur)}）` : '累计已使用（估算）';
       cards.push(dshCard(name, 'DSH · 按 token 估算', 'API 密钥', big, cap,
         [['已使用（估算）', est + money(p.cost_all, cur)], ['本月（估算）', est + money(p.cost_month, cur)], ...dshTokRows(p)],
-        p.remaining != null ? '金额 = DSH 记录的 token × 你填的单价，不是官方账单' : `想看剩余：${cmdBox(ds.cmd + ' --dsh-credit ' + p.id + ' 充值总额')}`));
+        `金额 = DSH 记录的 token × 你填的单价，不是官方账单 <button class="link-btn" data-dshprice="${esc(p.id)}">${p.remaining != null ? '改单价/充值额' : '填充值额看剩余'}</button>`));
     } else {
       cards.push(dshCard(name, 'DSH · 只统计 token', 'API 密钥', tokens(p.tokens.month), '本月 token · 还没填单价',
         dshTokRows(p).slice(0, 2),
-        `填一次每百万 token 的价格就显示金额：${cmdBox(ds.cmd + ' --dsh-price ' + p.id + ' 输入价 输出价 缓存读价 缓存写价')}`));
+        `<button class="link-btn" data-dshprice="${esc(p.id)}">填一次每百万 token 的单价，就显示金额</button>`));
     }
   }
   if (!ds.zstd) cards.push(dshCard('读不到 DSH 会话', '缺少解压组件', '需要安装', '—', '没法统计 token', [],
@@ -471,7 +487,7 @@ function renderCards(d) {
     subscriptionCard('Codex', '副 agent · 小活', d.codex?.plan, d.codex,
       `<div class="kv"><div class="kv-row"><span>今日 token</span><span class="num">${tokens(d.codex?.tokens_today || 0)}</span></div>
        <div class="kv-row"><span>近 7 天 token</span><span class="num">${tokens(d.codex?.tokens_week || 0)}</span></div></div>`, '用一次 Codex 后显示') +
-    ((d.dsh?.present && !(d.api.providers || []).some(p => p.total > 0) && d.api.billing?.remaining == null) ? '' :
+    (d.dsh?.present ? '' :
       (d.api.providers && d.api.providers.length ? d.api.providers : [null]).map(p => apiCard(d.api, p)).join(''));
 }
 
@@ -721,6 +737,46 @@ $('#cal-form').addEventListener('submit', async e => {
     $('#cal-save').disabled = false;
   }
 });
+
+/* One-time prices / credit for a DSH provider */
+const dshd = $('#dshd');
+let dshdPid = null;
+function openDshPrice(pid) {
+  dshdPid = pid;
+  const p = (state.data?.dsh?.providers || []).find(x => x.id === pid) || {};
+  const pr = p.price || {};
+  $('#dshd-title').textContent = `设置 ${p.name || pid} 的单价`;
+  for (const [id, k] of [['#dshd-input', 'input'], ['#dshd-output', 'output'], ['#dshd-cr', 'cache_read'], ['#dshd-cw', 'cache_write']]) $(id).value = pr[k] ?? '';
+  $('#dshd-cur').value = pr.currency || p.currency || (pid === 'deepseek' ? 'CNY' : 'USD');
+  $('#dshd-credit').value = p.credit_cfg ?? '';
+  $('#dshd-msg').textContent = '';
+  if (!dshd.open) dshd.showModal();
+  $('#dshd-input').focus();
+}
+document.addEventListener('click', e => { const el = e.target.closest('[data-dshprice]'); if (el) openDshPrice(el.dataset.dshprice); });
+$('#dshd-form').addEventListener('submit', async e => {
+  if (e.submitter?.value !== 'save') return;
+  e.preventDefault();
+  const v = id => $(id).value.trim();
+  const body = { provider: dshdPid, currency: $('#dshd-cur').value, credit: v('#dshd-credit') || null };
+  if (v('#dshd-input') || v('#dshd-output')) {
+    if (!v('#dshd-input')) { $('#dshd-msg').textContent = '请填输入价'; return; }
+    body.price = { input: v('#dshd-input'), output: v('#dshd-output') || v('#dshd-input'), cache_read: v('#dshd-cr'), cache_write: v('#dshd-cw') };
+  } else if (!body.credit) { $('#dshd-msg').textContent = '至少填单价或充值总额'; return; }
+  $('#dshd-save').disabled = true;
+  try {
+    await postJson('/api/dsh-config', body);
+    $('#dshd-msg').textContent = '已保存';
+    await load();
+    setTimeout(() => dshd.close(), 700);
+  } catch (err) {
+    $('#dshd-msg').textContent = '保存失败：' + err.message;
+  } finally {
+    $('#dshd-save').disabled = false;
+  }
+});
+if (location.hash === '#dsh') { history.replaceState(null, '', location.pathname); load().then(() => $('#dsh-block').scrollIntoView({ block: 'start' })); }
+
 if (location.hash === '#calibrate') {
   history.replaceState(null, '', location.pathname);
   load().then(openCal);
