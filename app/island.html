@@ -312,10 +312,11 @@ const dshBal = (p, ds) => p.id === 'deepseek' && ds.balance?.ok && ds.balance.ro
 const strong = t => `<em style="color:var(--t1);font-weight:600">${t}</em>`;
 function dshRingTile(p, ds, r) {
   const pct = r.remaining_pct;
-  const hint = r.used_source === 'total' ? 'DeepSeek 官方余额接口，精确；总额 = 你填的累计充值额' : 'DeepSeek 官方余额接口，精确；圆环 = 剩余 ÷（剩余 + 自开始记录起花掉的），在仪表盘填累计充值额后按真实总额算';
+  const hint = r.used_source === 'total' ? 'DeepSeek 官方余额接口，精确；总额 = 你填的累计充值额' : 'DeepSeek 官方余额接口，精确；圆环 = 剩余 ÷（剩余 + 自开始记录起花掉的），在仪表盘填累计充值额后，满圆环 = 真实总额，已用 = 总额 − 余额';
   return `<div class="tile dsh-tile" style="cursor:pointer" title="${esc(hint)}">${creditRing(pct, 46, 'D')}<div><div class="tile-k">${esc(p.name)}</div>
     <div class="money num" style="color:${tone(pct)}">${money(r.total, r.currency)}</div>
-    <div class="line num" style="line-height:1.35">剩余${strong((pct ?? '—') + '%')}</div><div class="line num" style="line-height:1.35">已用${strong(money(r.used, r.currency))}</div></div></div>`;
+    <div class="line num" style="line-height:1.35">剩余${strong((pct ?? '—') + '%')}</div><div class="line num" style="line-height:1.35">已用${strong(money(r.used, r.currency))}</div>
+    ${r.used_source === 'total' ? '' : `<div class="qnote num" style="margin:0">自${new Date(r.since * 1000).getMonth() + 1}/${new Date(r.since * 1000).getDate()}起 · 点此填总额</div>`}</div></div>`;
 }
 function dshChip(p, ds) {
   const used = p.cost_all != null;

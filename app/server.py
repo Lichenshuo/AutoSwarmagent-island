@@ -1891,6 +1891,13 @@ def setup_items(claude, codex, dsh):
         bal = dsh.get("balance")
         if bal and bal.get("ok"):
             items.append({"id": "deepseek", "level": "ok", "title": "DeepSeek 余额：官方接口，精确"})
+            row = (bal.get("rows") or [{}])[0]
+            if row and not row.get("credit_total"):
+                cur = row.get("currency") or "CNY"
+                items.append({"id": "deepseek_total", "level": "warn", "title": "填一次 DeepSeek 累计充值额，圆环才是真实总额",
+                              "detail": "官方接口只告诉我“现在还剩多少”，不告诉我“一共充过多少”，所以现在的圆环和“已使用”只是从灵动岛第一次读到余额起算的。"
+                                        "在 DeepSeek 平台的充值/账单页看一下累计充值（含赠送）多少，在仪表盘 DeepSeek 卡片点“填累计充值额”，或运行下面这条（把数字换成你的）。填完后：满圆环 = 这个总额，已使用 = 总额 − 余额，剩余低于 50% 变黄、低于 20% 变红。",
+                              "cmd": f"{self_cmd()} --deepseek-total {cur} 累计充值总额"})
         elif bal and not bal.get("ok"):
             items.append({"id": "deepseek", "level": "warn", "title": "DeepSeek 余额读取失败",
                           "detail": {"invalid_key": "密钥无效，重新创建一把并更新环境变量。", "network": "连不上 api.deepseek.com，检查网络或代理。"}.get(bal.get("error"), "错误：" + str(bal.get("error")))})
