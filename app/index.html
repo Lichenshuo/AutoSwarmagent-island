@@ -460,7 +460,7 @@ function renderDsh(d) {
         `账户余额${r.remaining_pct != null ? ' · 剩余 ' + r.remaining_pct + '%' : ''}（赠送 ${money(r.granted, r.currency)} · 充值 ${money(r.topped_up, r.currency)}）${bal.available === false ? ' · <span class="warn-text">余额不足，API 暂不可用</span>' : ''}`,
         [[r.used_source === 'total' ? `已使用（累计充值 ${money(r.credit_total, r.currency)}）` : `已使用（${r.since ? dayLabel(r.since) + '起' : '自开始记录'}）`, money(r.used, r.currency)],
          ...(dsApi ? dshTokRows(dsApi) : [])],
-        r.used_source === 'total' ? '余额由 DeepSeek 官方接口读取，精确' : `已使用按余额下降累计 <button class="link-btn" data-dshprice="deepseek">填累计充值额，更精确</button>`));
+        r.used_source === 'total' ? `余额来自 DeepSeek 官方接口 · 充值后会自动累加；也可 <button class="link-btn" data-dshprice="deepseek">手动改累计充值额</button>` : `已使用按余额下降累计 <button class="link-btn" data-dshprice="deepseek">填累计充值额，更精确</button>`));
     }
   } else if (ds.key_from && bal && !bal.ok) {
     cards.push(dshCard('DeepSeek', 'DSH · 官方余额接口', 'API 密钥', '—', `读不到余额：${{ invalid_key: '密钥无效', insufficient: '账户余额不足', rate_limited: '请求太频繁', network: '网络连不上 api.deepseek.com' }[bal.error] || esc(bal.error)}`,

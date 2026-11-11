@@ -1497,6 +1497,18 @@ def deepseek_key():
 BALANCE_FILE = DATA / "deepseek-balance.json"
 
 
+def bump_deepseek_total(cur, value):
+    config = read_json(CONFIG_FILE) or {}
+    config.setdefault("deepseek_total", {})[cur] = value
+    config.setdefault("dsh_credit", {})["deepseek"] = value
+    try:
+        tmp = CONFIG_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.replace(tmp, CONFIG_FILE)
+    except OSError:
+        pass
+
+
 def deepseek_balance(key):
     """DeepSeek's own balance, per currency, plus the money spent since the island first saw the account."""
     req = urllib.request.Request(DEEPSEEK_BALANCE_URL, headers={"Authorization": "Bearer " + key, "Accept": "application/json"})
@@ -1518,7 +1530,11 @@ def deepseek_balance(key):
             continue
         t = track.setdefault(cur, {"first_total": total, "first_at": time.time(), "last_total": total, "spent": 0.0})
         if total < t["last_total"]:
-            t["spent"] += t["last_total"] - total        # a drop is spending; a rise is a top-up and is ignored
+            t["spent"] += t["last_total"] - total        # a drop is spending
+        elif total - t["last_total"] > 0.005 and totals.get(cur):
+            # a rise is a top-up: add it to the cumulative credited total so "used" and the ring stay right
+            totals[cur] = round(float(totals[cur]) + total - t["last_total"], 2)
+            bump_deepseek_total(cur, totals[cur])
         t["last_total"] = total
         total_in = totals.get(cur)
         used = max(0.0, total_in - total) if total_in else t["spent"]
@@ -1637,7 +1653,9 @@ def dsh_snapshot():
     out["tokens_today"] = sum(a["today"] for a in acc.values())
     out["tokens_week"] = sum(a["week"] for a in acc.values())
     if key:
-        out["balance"] = cached("deepseek-balance:" + (key_from or ""), 300, lambda: deepseek_balance(key))
+        out["balance"] = cached("deepseek-balance:" + (key_from or ""), 60, lambda: deepseek_balance(key))
+        if not (out["balance"] or {}).get("ok"):
+            _ttl_cache.pop("deepseek-balance:" + (key_from or ""), None)     # never keep a failure around
     return out
 
 
