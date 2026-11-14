@@ -134,7 +134,9 @@ app/statusline.py   可选：Claude Code 终端状态栏，顺带记录额度
 ### 0.005（开发中）
 - 新增：仪表盘顶部「架构实时图」，按角色分工画成一棵树——规划顾问（与主 agent 之间有"咨询"线）、主 agent → 派发 → 构建 / 检查 / 并行探查 → 回到主 agent 验证交付。不管 agent 来自 Claude 内部、Codex 还是 DSH，都按角色归到对应的框里，每个 agent 标明用的模型（DSH 里会标 deepseek 还是 claude 等，以及账号登录 / API 密钥）和正在做的事
 - 动效：谁在工作，它所在的框就亮起、发光、变宽并展开，连线和咨询线上有流动的光点；没活的框变暗收起；底部的「规划想 · 构建写 · 检查验 · 探查扫」随活动点亮。角色是按名字、任务和子 agent 类型推断的，不是 agent 自己报的
-- 架构图里每个 agent 都标明来源：Claude 桌面端子 agent、Codex 桌面端、DSH 里的 DeepSeek、DSH 里的 Claude API、DSH 里的 Codex / OpenAI API，顶部有各来源的数量图例；连线按主 agent → 派发 → 三路 → 汇总完整相连
+- 架构图的版式照视频重排：规划顾问是左侧整列（平时睡着，三个检查点——派活之前 / 同一错误出现两次 / 宣布完成之前——被叫醒时亮起，并有"被唤醒 n/3"），用虚线"咨询"接到主 agent；右侧是主 agent → 派发 → 构建 / 检查 / 并行探查 → 回到主 agent，所有连线首尾相连
+- 每个 agent 都标明来源：Claude 桌面端子 agent、Codex 桌面端、DSH 里的 DeepSeek / Claude API / OpenAI API；顶部有各来源的数量图例
+- 预留 Codex API 接口：派活记录里 `route` 为 `api`，或 `config.json` 的 `codex_api_agents`（agent 名字列表，末尾可写 `*` 当前缀）里列出的名字，都会归到「Codex API」；其余 Codex 算桌面端
 - 新增：读取 Claude 自己派的内部子 agent（`~/.claude/projects/…/subagents/agent-*.jsonl`），显示它的角色（Explore 等）、模型、token 和正在做的步骤；最近 2 分钟有动静算运行中
 - 有任务在跑时连线上有流动的光点，没任务时动画自动停止；纯 HTML + CSS，没有额外依赖，内容没变化就不重绘
 

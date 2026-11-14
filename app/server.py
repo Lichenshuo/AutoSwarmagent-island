@@ -1161,6 +1161,20 @@ def _short(text, limit=90):
     return " ".join(str(text).split())[:limit] if text else ""
 
 
+def codex_route(task):
+    """Reserved hook for Codex run through an API key instead of the desktop login.
+    A call counts as "api" when the task says so (task["route"] == "api"), or when its agent name is listed in
+    config.json -> "codex_api_agents" (exact names, or prefixes ending in "*"). Everything else is the desktop app."""
+    if str(task.get("route") or (task.get("native_options") or {}).get("route") or "").lower() == "api":
+        return "api"
+    name = (task.get("communication") or {}).get("name") or ""
+    for rule in (read_json(CONFIG_FILE) or {}).get("codex_api_agents") or []:
+        rule = str(rule)
+        if name == rule or (rule.endswith("*") and name.startswith(rule[:-1])):
+            return "api"
+    return "account"
+
+
 def codex_activity(path):
     """Latest step in a Codex session file: command, file edit, search, reasoning or reply."""
     try:
@@ -1706,6 +1720,8 @@ def calls_snapshot(codex_sessions, opencode_sessions):
                 activity = opencode_activity(session)
         selection = task.get("native_options") or {}
         model_raw, effort_raw, route = task.get("model") or selection.get("model"), task.get("effort") or selection.get("variant"), None
+        if task["provider"] == "codex":
+            route = codex_route(task)
         if task["provider"] == "dsh":
             wp, wm, we = dsh_call_config(dsh, created, finished)      # what DSH really ran for this call
             prov, model_raw, eff = dsh_model(model_raw, dsh)

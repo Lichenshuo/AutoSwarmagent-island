@@ -222,14 +222,20 @@ footer{margin:clamp(48px,8vw,80px) 0 40px;font-size:12px;color:var(--text-3);lin
 @keyframes arch-sweep{from{transform:translateX(-100%)}to{transform:translateX(290%)}}
 @keyframes arch-glow{0%,100%{opacity:.15}50%{opacity:.85}}
 @keyframes arch-pulse{50%{opacity:.3}}
-.arch .row1{display:grid;grid-template-columns:minmax(0,1fr) 56px minmax(0,1.1fr) 56px minmax(0,1fr);align-items:center}
+.arch .grid{display:grid;grid-template-columns:260px 44px minmax(0,1fr);align-items:stretch}
+.arch .grid>.r-plan{grid-column:1;grid-row:1}.arch .grid>.tree{grid-column:3;grid-row:1;min-width:0}
+.arch .r-plan .cps{display:grid;gap:6px;margin:10px 0 4px}
+.arch .cp{border:1px solid #30363d;border-radius:7px;padding:5px 9px;transition:border-color .4s,background .4s}
+.arch .cp b{display:block;font-size:12px;color:#8b949e;font-weight:600}.arch .cp span{font-size:11px;color:#6e7681}
+.arch .cp.on{border-color:var(--c-plan);background:color-mix(in srgb,var(--c-plan) 22%,transparent)}.arch .cp.on b{color:#e6edf3}
+.arch .r-plan .wake{display:flex;justify-content:space-between;color:#6e7681;font-size:11.5px;margin-top:2px}
 .arch .ovw{font-size:11.5px;color:#8b949e}.arch .ovw h4{font-size:12px}.arch .ovw b{color:#e6edf3;font-weight:600}.arch .ovw div.k{display:flex;justify-content:space-between;gap:8px;margin-top:2px}
-.arch .consult{position:relative;height:2px;border-top:2px dashed #30363d;margin:0 4px}
-.arch .consult em{position:absolute;top:-17px;left:0;right:0;text-align:center;font-style:normal;font-size:10.5px;color:#6e7681}
+.arch .consult{display:block;position:absolute;left:-44px;width:44px;top:50%;height:0;border-top:2px dashed #30363d}
+.arch .consult em{position:absolute;top:-19px;left:0;right:0;text-align:center;font-style:normal;font-size:10.5px;color:#6e7681}
 .arch .consult.live{border-top-color:var(--c-plan)}
 .arch .consult.live::after{content:"";position:absolute;top:-5px;left:0;width:8px;height:8px;border-radius:50%;background:var(--c-plan);animation:arch-h 1.1s linear infinite}
-@keyframes arch-h{from{transform:translateX(0);opacity:1}to{transform:translateX(52px);opacity:.1}}
-.arch .main{text-align:center}.arch .main h4{justify-content:center}
+@keyframes arch-h{from{transform:translateX(0);opacity:1}to{transform:translateX(36px);opacity:.1}}
+.arch .main{text-align:center;position:relative}.arch .main h4{justify-content:center}
 .arch .main.on{border-color:var(--c-main)}
 .arch .wire{position:relative;height:16px;width:2px;margin:0 auto;background:#30363d}
 .arch .wire.live{background:var(--c-main)}
@@ -244,7 +250,7 @@ footer{margin:clamp(48px,8vw,80px) 0 40px;font-size:12px;color:var(--text-3);lin
 .arch .fan .stub,.arch .fan .sb{position:absolute;left:0;right:0;height:16px;transition:border-color .4s}
 .arch .fan .stub{top:-17px;border-top:2px solid #30363d}
 .arch .fan .sb{bottom:-17px;border-bottom:2px solid #30363d}
-.arch .fan .rl:not(:last-child) .stub,.arch .fan .rl:not(:last-child) .sb{right:-13px}
+.arch .fan .rl:not(:last-child) .stub,.arch .fan .rl:not(:last-child) .sb{right:-14px}
 .arch .fan .rl:first-child .stub,.arch .fan .rl:first-child .sb{left:50%}
 .arch .fan .rl:last-child .stub,.arch .fan .rl:last-child .sb{right:50%}
 .arch .fan .sb::before{content:"";position:absolute;left:50%;bottom:0;height:16px;width:2px;margin-left:-1px;background:#30363d;transition:background .4s}
@@ -256,11 +262,11 @@ footer{margin:clamp(48px,8vw,80px) 0 40px;font-size:12px;color:var(--text-3);lin
 .arch .rows{display:grid;gap:7px;margin:9px 0 4px;overflow:hidden;max-height:60px;transition:max-height .6s var(--ease-out-quart)}
 .arch .rl.on .rows{max-height:460px}
 .arch .ag{display:grid;grid-template-columns:14px minmax(0,1fr);column-gap:6px;border-left:2px solid var(--ch,#30363d);padding-left:7px;margin-left:-2px}
-.arch .pill{font-size:10.5px;font-weight:600;color:#0d1117;background:var(--ch,#6e7681);border-radius:9px;padding:0 7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.arch .pill{max-width:100%;font-size:10.5px;font-weight:600;color:#0d1117;background:var(--ch,#6e7681);border-radius:9px;padding:0 7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .arch .chs{display:flex;flex-wrap:wrap;gap:4px 14px;margin:-6px 0 14px;color:#8b949e;font-size:11.5px}
 .arch .chs span{white-space:nowrap}.arch .chs i{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:6px;vertical-align:-1px}
 .arch .ag .ic{grid-row:span 3}.arch .ag.run .ic{color:var(--lc)}.arch .ag.ok .ic{color:#3fb950}.arch .ag.bad .ic{color:#f85149}.arch .ag.wait .ic{color:#d29922}.arch .ag.idle .ic{color:#6e7681}
-.arch .ag .t{display:flex;gap:6px;align-items:baseline;min-width:0}
+.arch .ag .t{display:flex;flex-wrap:wrap;gap:2px 6px;align-items:baseline;min-width:0}
 .arch .ag .nm2{color:#e6edf3;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .arch .ag .tag{font-size:11px;color:var(--lc);border:1px solid color-mix(in srgb,var(--lc) 40%,transparent);border-radius:4px;padding:0 5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .arch .ag .md,.arch .ag .do{color:#8b949e;font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -278,7 +284,7 @@ footer{margin:clamp(48px,8vw,80px) 0 40px;font-size:12px;color:var(--text-3);lin
 .arch .prompt{margin-top:10px;border:1px solid #21262d;border-radius:8px;padding:6px 10px;color:#8b949e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .arch .prompt b{color:#c9d1d9;font-weight:400}
 @media (prefers-reduced-motion:reduce){.arch *,.arch *::before,.arch *::after{animation:none!important}}
-@media (max-width:760px){.arch .ovw,.arch .row1>.sp{display:none}.arch .fan .sb{display:none}.arch .row1{grid-template-columns:1fr;gap:0}.arch .consult{height:22px;width:2px;border-top:none;border-left:2px dashed #30363d;margin:0 auto}.arch .consult em{display:none}.arch .consult.live::after{top:0;left:-5px;animation:arch-flow 1.2s linear infinite}.arch .row1 .r-main{order:-1}.arch .row1 .r-plan{order:1}.arch .fan{flex-direction:column}.arch .fan .rl{flex:none;width:100%}.arch .fan .stub{display:none}.arch .log div{grid-template-columns:44px 1fr auto}.arch .log .w{display:none}}
+@media (max-width:760px){.arch .fan .sb{display:none}.arch .grid{grid-template-columns:1fr}.arch .grid>.r-plan,.arch .grid>.tree{grid-column:1;grid-row:auto}.arch .grid>.r-plan{order:2;margin-top:12px}.arch .consult{display:none}.arch .fan{flex-direction:column}.arch .fan .rl{flex:none;width:100%}.arch .fan .stub{display:none}.arch .log div{grid-template-columns:44px 1fr auto}.arch .log .w{display:none}}
 </style>
 </head>
 <body>
@@ -756,22 +762,28 @@ const CHANNELS = {
   cd: { name: 'Claude 桌面端子 agent', short: 'Claude 桌面端', col: '#e0875c' },
   dc: { name: 'DSH · Claude API', short: 'DSH · Claude API', col: '#f2b896' },
   cx: { name: 'Codex 桌面端', short: 'Codex 桌面端', col: '#19c3a0' },
-  do: { name: 'DSH · Codex / OpenAI API', short: 'DSH · Codex API', col: '#8ee8d2' },
+  do: { name: 'DSH · OpenAI API', short: 'DSH · OpenAI API', col: '#8ee8d2' },
+  ca: { name: 'Codex API（预留）', short: 'Codex API', col: '#5fd8ff' },
   dd: { name: 'DSH · DeepSeek', short: 'DSH · DeepSeek', col: '#e3b341' },
 };
-const chanOf = x => x.lane === 'claude-sub' ? 'cd' : x.lane === 'codex' ? 'cx' : x.lane === 'dsh' ? (x.vendor === 'anthropic' ? 'dc' : /^(openai|codex|azure)/.test(x.vendor || '') ? 'do' : 'dd') : 'cx';
+const chanOf = x => x.lane === 'claude-sub' ? 'cd' : x.lane === 'codex' ? (x.route === 'api' ? 'ca' : 'cx') : x.lane === 'dsh' ? (x.vendor === 'anthropic' ? 'dc' : /^(openai|codex|azure)/.test(x.vendor || '') ? 'do' : 'dd') : 'cx';
 let archBuilt = false; const archCache = {};
 const archSet = (id, html) => { if (archCache[id] !== html) { archCache[id] = html; $('#' + id).innerHTML = html; } };
 function archBuild() {
   const role = k => `<div class="node rl r-${k} off" id="ar-${k}"><i class="stub"></i><i class="sb"></i><span class="clip"></span><h4><span class="dot"></span><span class="nm">${ROLES[k].name}</span><span class="st" id="ar-${k}-st"></span></h4><div class="duty">${ROLES[k].duty}</div><div class="rows" id="ar-${k}-rows"></div><div class="bar"><i id="ar-${k}-bar" style="width:0"></i></div><div class="foot" id="ar-${k}-foot"></div></div>`;
+  const plan = `<div class="node rl r-plan off" id="ar-plan"><span class="clip"></span><h4><span class="dot"></span><span class="nm">${ROLES.plan.name}</span><span class="st" id="ar-plan-st"></span></h4><div class="duty">${ROLES.plan.duty} · 平时睡着，关键时刻被叫醒</div>
+      <div class="cps" id="ar-cps"></div><div class="wake"><span>被唤醒</span><b id="ar-wake"></b></div><div class="rows" id="ar-plan-rows"></div><div class="bar"><i id="ar-plan-bar" style="width:0"></i></div><div class="foot" id="ar-plan-foot"></div></div>`;
   $('#arch').innerHTML = `<div class="ps" id="ar-ps"></div><div class="legend" id="ar-legend"></div><div class="chs" id="ar-chs"></div>
-    <div class="row1">${role('plan').replace('<i class="stub"></i><i class="sb"></i>', '')}<div class="consult" id="ar-consult"><em>咨询</em></div>
-      <div class="node main r-main" id="ar-main"><h4 id="ar-main-h"></h4><div class="duty" id="ar-main-d"></div></div><i class="sp"></i><div class="node ovw" id="ar-ovw"></div></div>
-    <div class="wire" id="ar-w1"></div>
-    <div class="node dispatch r-main" id="ar-disp"><h4>派发</h4><div class="duty">AutoSwarm 派活 · Claude 内部 Agent 工具</div></div>
-    <div class="wire" id="ar-w1b"></div><div class="fan">${role('build')}${role('check')}${role('swarm')}</div>
-    <div class="wire back" id="ar-w2"></div>
-    <div class="node dispatch r-main" id="ar-back"><h4>回到主 agent · 验证 · 交付</h4><div class="duty" id="ar-back-d"></div></div>
+    <div class="grid">${plan}
+      <div class="tree">
+        <div class="node main r-main" id="ar-main"><i class="consult" id="ar-consult"><em>咨询</em></i><h4 id="ar-main-h"></h4><div class="duty" id="ar-main-d"></div></div>
+        <div class="wire" id="ar-w1"></div>
+        <div class="node dispatch r-main" id="ar-disp"><h4>派发</h4><div class="duty">AutoSwarm 派活 · Claude 内部 Agent 工具</div></div>
+        <div class="wire" id="ar-w1b"></div>
+        <div class="fan">${role('build')}${role('check')}${role('swarm')}</div>
+        <div class="wire back" id="ar-w2"></div>
+        <div class="node dispatch r-main" id="ar-back"><h4>回到主 agent · 验证 · 交付</h4><div class="duty" id="ar-back-d"></div></div>
+      </div></div>
     <div class="narr" id="ar-narr"></div><div class="log" id="ar-log"></div><div class="prompt" id="ar-prompt"></div>`;
   archBuilt = true;
 }
@@ -788,7 +800,7 @@ function renderArch(d) {
     const st = run ? (a.last_state === 'waiting' ? 'wait' : 'run') : a.last_state === 'completed' ? 'ok' : ['failed', 'lost', 'cancelled', 'unknown'].includes(a.last_state) ? 'bad' : 'idle';
     const raw = String(a.model || ''), vendor = raw.includes('/') ? raw.split('/')[0] : (a.provider === 'dsh' ? 'deepseek' : '');
     const model = raw.includes('/') ? raw.split('/').slice(1).join('/') : raw;
-    const x = { lane: a.provider, vendor, name: a.name || String(a.agent_id).slice(0, 8), task: _firstLine(a.last_task), model, st, last: a.last_at || 0, run: run ? 1 : 0, done: a.completed, bad: a.failed, tokens: a.tokens || 0,
+    const x = { lane: a.provider, vendor, route: a.route, name: a.name || String(a.agent_id).slice(0, 8), task: _firstLine(a.last_task), model, st, last: a.last_at || 0, run: run ? 1 : 0, done: a.completed, bad: a.failed, tokens: a.tokens || 0,
       tag: a.provider === 'dsh' ? `${vendor} · ${ROUTE[a.route] || 'API'}` : a.provider === 'codex' ? 'Codex' : (PNAME[a.provider] || a.provider),
       md: [shortModel(model), a.effort ? '思考 ' + a.effort : '', a.provider === 'dsh' ? (ROUTE[a.route] || '') : ''].filter(Boolean).join(' · '),
       doing: run ? (c.activity?.text || '处理：' + _firstLine(a.last_task)) : (st === 'ok' ? '已完成：' : st === 'bad' ? '失败：' : '') + _firstLine(a.last_task) };
@@ -819,10 +831,13 @@ function renderArch(d) {
     $('#ar-' + k + '-bar').style.width = total ? Math.round(fin / total * 100) + '%' : '0';
     archSet(`ar-${k}-foot`, `<span>${total ? `${fin}/${total} 已收工` : '本次没有派到这一路'}</span><span>${tokens(list.reduce((n, x) => n + x.tokens, 0))} token</span>`);
   }
-  archSet('ar-ps', 'PS&gt; <b>autoswarm</b> <i>watch</i> · 角色按名字和任务推断 · 每 15 秒更新');
+  archSet('ar-ps', `PS&gt; <b>autoswarm</b> <i>watch</i> · 运行 <b>${running}</b> · 待批准 <b>${waiting}</b> · 共 <b>${norm.length}</b> 个 agent · ${tokens(norm.reduce((n, x) => n + x.tokens, 0))} token · 角色按名字和任务推断`);
   archSet('ar-legend', Object.entries(ROLES).map(([k, r]) => `<span><i class="d" style="background:var(${r.col})"></i><b style="color:var(${r.col})">${r.name}</b> ${norm.filter(x => x.role === k).length} 个${act[k] ? ' · ' + act[k] + ' 在跑' : ''}</span>`).join(''));
   archSet('ar-chs', Object.entries(CHANNELS).map(([k, c]) => { const l = norm.filter(x => chanOf(x) === k); return l.length ? `<span><i style="background:${c.col}"></i>${esc(c.name)} ${l.length}${l.some(x => x.run) ? ' · ' + l.filter(x => x.run).length + ' 在跑' : ''}</span>` : ''; }).join('') || '<span>还没有派过活</span>');
-  archSet('ar-ovw', `<h4>本轮概览</h4><div class="k"><span>正在运行</span><b>${running}</b></div><div class="k"><span>等你批准</span><b>${waiting}</b></div><div class="k"><span>agent 总数</span><b>${norm.length}</b></div><div class="k"><span>累计 token</span><b>${tokens(norm.reduce((n, x) => n + x.tokens, 0))}</b></div>`);
+  const failedTwice = agents.some(a => (a.failed_total || a.failed || 0) >= 2 || (a.failed || 0) >= 1 && a.rounds >= 2);
+  const cps = [['派活之前', '这个方案对吗？', act.plan > 0 && stage !== 'back'], ['同一个错误出现两次', '真原因，还是在原地打转？', failedTwice], ['宣布完成之前', '真的做完了吗？', stage === 'back' && act.plan > 0]];
+  archSet('ar-cps', cps.map(([t, q, on]) => `<div class="cp ${on ? 'on' : ''}"><b>${on ? '▸ ' : ''}${t}</b><span>${q}</span></div>`).join(''));
+  archSet('ar-wake', `${cps.filter(c => c[2]).length} / 3`);
   const main = $('#ar-main');
   main.classList.toggle('on', stage !== 'idle');
   archSet('ar-main-h', 'Claude 主 agent（桌面端 / Claude Code）');

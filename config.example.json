@@ -20,6 +20,7 @@
   },
   "anthropic_admin_key": "",
   "deepseek_api_key": "",
+  "codex_api_agents": [],
   "deepseek_total": {
     "CNY": 100
   },
