@@ -195,6 +195,40 @@ footer{margin:clamp(48px,8vw,80px) 0 40px;font-size:12px;color:var(--text-3);lin
   .chev{display:none}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+/* 架构实时图：纯 HTML + CSS，动画只在有任务运行时开启，只用 transform/opacity */
+.arch{background:#0d1117;color:#c9d1d9;border-radius:var(--r-panel);padding:20px 22px 16px;font-family:var(--mono);font-size:12.5px;box-shadow:var(--sh-panel);overflow:hidden}
+.arch .ah{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;color:#8b949e;margin-bottom:14px}
+.arch .ah b{color:#e6edf3;font-weight:600}
+.arch .node{border:1px solid #30363d;border-radius:10px;padding:10px 14px;background:#0d1117;position:relative}
+.arch .node.on{border-color:#58a6ff;box-shadow:0 0 0 1px rgba(88,166,255,.25)}
+.arch .node h4{font-size:13px;font-weight:600;color:#e6edf3;margin-bottom:2px}
+.arch .node p{color:#8b949e;font-size:11.5px}
+.arch .main{max-width:420px;margin:0 auto;text-align:center}
+.arch .wire{position:relative;height:26px;width:2px;margin:0 auto;background:#30363d}
+.arch .wire.live{background:linear-gradient(#58a6ff,#58a6ff)}
+.arch .wire.live::after{content:"";position:absolute;left:-3px;top:0;width:8px;height:8px;border-radius:50%;background:#58a6ff;animation:arch-flow 1.4s linear infinite}
+.arch .wire.back.live::after{background:#3fb950;animation-direction:reverse}
+@keyframes arch-flow{from{transform:translateY(0);opacity:1}to{transform:translateY(20px);opacity:.2}}
+.arch .dispatch{max-width:300px;margin:0 auto;text-align:center;padding:8px 12px}
+.arch .lanes{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+.arch .lane h4 .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#484f58;margin-right:6px}
+.arch .lane.on h4 .dot{background:#3fb950;animation:arch-pulse 1.2s ease-in-out infinite}
+@keyframes arch-pulse{50%{opacity:.3}}
+.arch .chips{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:4px 10px;margin:8px 0 6px}
+.arch .chip{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#6e7681}
+.arch .chip.run{color:#58a6ff}.arch .chip.ok{color:#3fb950}.arch .chip.bad{color:#f85149}.arch .chip.wait{color:#d29922}
+.arch .lane .foot{color:#6e7681;font-size:11.5px;border-top:1px dashed #21262d;padding-top:6px;margin-top:4px;display:flex;justify-content:space-between;gap:8px}
+.arch .stage{display:flex;gap:6px 18px;flex-wrap:wrap;justify-content:center;margin:14px 0 10px;font-size:14px;font-weight:600;color:#30363d}
+.arch .stage span.on{color:#e6edf3}.arch .stage span.on.g{color:#3fb950}.arch .stage span.on.b{color:#58a6ff}.arch .stage span.on.o{color:#d29922}
+.arch .log{border-top:1px solid #21262d;padding-top:8px;display:grid;gap:3px}
+.arch .log div{display:grid;grid-template-columns:54px 92px 1fr auto;gap:10px;white-space:nowrap}
+.arch .log div>*{overflow:hidden;text-overflow:ellipsis}
+.arch .log .t{color:#6e7681}.arch .log .w{color:#58a6ff}.arch .log .m{color:#c9d1d9}.arch .log .s{color:#8b949e}
+.arch .log .s.ok{color:#3fb950}.arch .log .s.bad{color:#f85149}.arch .log .s.run{color:#58a6ff}
+.arch .none{text-align:center;color:#6e7681;padding:6px 0}
+@media (prefers-reduced-motion:reduce){.arch *{animation:none!important}}
+@media (max-width:640px){.arch .log div{grid-template-columns:48px 1fr auto}.arch .log .w{display:none}}
 </style>
 </head>
 <body>
@@ -215,6 +249,13 @@ footer{margin:clamp(48px,8vw,80px) 0 40px;font-size:12px;color:var(--text-3);lin
     <div class="eyebrow"><span class="dot"></span>AUTOSWARM · 实时</div>
     <h1>协作总览</h1>
     <p class="lede num" id="lede">&nbsp;</p>
+  </section>
+
+  <section class="block" id="arch-block">
+    <div class="block-head">
+      <div><h2>架构实时图</h2><p class="sub">主 agent 怎么派活、谁在干、干到哪了；每 15 秒随数据刷新，没有任务时动画自动停止</p></div>
+    </div>
+    <div class="arch" id="arch"></div>
   </section>
 
   <section class="block" id="setup-block" hidden>
@@ -640,6 +681,52 @@ function renderOverview(d) {
     + (idle.length ? `<button class="idle-toggle ${open ? 'open' : ''}" data-idle-toggle><i></i>空闲的 ${idle.length} 个<span>${open ? '点击收起' : '累计 ' + tokens(idleTok) + ' token · 点击展开'}</span></button>${open ? idle.map(rowOf).join('') : ''}` : '');
   $('#overview').innerHTML = `<div class="stats">${tiles}</div><div class="panel">${body}</div>`;
 }
+
+/* 架构实时图：一次只重绘变化了的内容，不放定时器、不放 canvas，占用极小 */
+let archLast = '';
+const _firstLine = t => String(t || '').split('\n').map(x => x.trim()).find(Boolean)?.slice(0, 80) || '';
+function renderArch(d) {
+  const box = $('#arch');
+  const calls = (d.calls || []).filter(c => !c.probe);
+  const agents = (d.delegation?.agents || []);
+  const isRunA = a => a.running > 0 || ['running', 'waiting'].includes(a.last_state);
+  const byProv = {};
+  for (const a of agents) (byProv[a.provider] = byProv[a.provider] || []).push(a);
+  const provs = Object.keys(byProv).sort((x, y) => byProv[y].filter(isRunA).length - byProv[x].filter(isRunA).length);
+  const running = agents.filter(isRunA).length;
+  const waiting = calls.filter(c => c.state === 'waiting').length;
+  const lastDone = calls.filter(c => c.finished_at).sort((a, b) => b.finished_at - a.finished_at)[0];
+  const justDone = !running && lastDone && Date.now() / 1000 - lastDone.finished_at < 600;
+  const stage = running ? (waiting ? 'wait' : 'run') : (justDone ? 'back' : 'idle');
+  const icon = a => a.running > 0 || a.last_state === 'running' ? ['run', '●'] : a.last_state === 'waiting' ? ['wait', '◐'] : a.last_state === 'completed' ? ['ok', '✓'] : ['bad', '✗'];
+  const lanes = provs.map(pv => {
+    const list = byProv[pv], on = list.filter(isRunA).length;
+    const shown = list.slice(0, 12);
+    const model = (list.find(isRunA) || list[0]);
+    const done = list.reduce((n, a) => n + a.completed, 0), bad = list.reduce((n, a) => n + a.failed, 0);
+    return `<div class="node lane ${on ? 'on' : ''}"><h4><span class="dot"></span>${esc(PNAME[pv] || pv)}</h4>
+      <p>${esc(model.model || '模型未知')}${model.effort ? ' · 思考 ' + esc(model.effort) : ''}${model.route ? ' · ' + esc(ROUTE[model.route] || model.route) : ''}</p>
+      <div class="chips">${shown.map(a => { const [k, ic] = icon(a); return `<span class="chip ${k}" title="${esc((a.name || a.agent_id) + ' · ' + (a.last_task || ''))}">${ic} ${esc(a.name || String(a.agent_id).slice(0, 8))}</span>`; }).join('')}${list.length > shown.length ? `<span class="chip">… 还有 ${list.length - shown.length} 个</span>` : ''}</div>
+      <div class="foot"><span>${on ? '运行 ' + on : '空闲'} · 累计完成 ${done}${bad ? ' · 异常 ' + bad : ''}</span><span>${tokens(list.reduce((n, a) => n + (a.tokens || 0), 0))} token</span></div></div>`;
+  }).join('');
+  const logRows = calls.slice().sort((a, b) => (b.finished_at || b.created_at || 0) - (a.finished_at || a.created_at || 0)).slice(0, 6).map(c => {
+    const t = c.finished_at || c.created_at;
+    const [k, w] = c.state === 'completed' ? ['ok', '完成'] : ['running', 'waiting'].includes(c.state) ? ['run', c.state === 'waiting' ? '待批准' : '进行中'] : ['bad', '异常'];
+    return `<div><span class="t">${t ? clock(t) : ''}</span><span class="w">${esc(PNAME[c.provider] || c.provider)}</span><span class="m">${esc(c.name || '')}${c.name ? ' · ' : ''}${esc(_firstLine(c.prompt))}</span><span class="s ${k}">${w}</span></div>`;
+  }).join('');
+  const st = (key, label, cls) => `<span class="${stage === key || (key === 'run' && stage === 'wait') ? 'on ' + cls : ''}">${label}</span>`;
+  const html = `<div class="ah"><span><b>Claude 主 agent</b> → AutoSwarm → 副 agent</span><span>正在运行 <b>${running}</b> · 副 agent 共 <b>${agents.length}</b></span></div>
+    <div class="node main ${running || justDone ? 'on' : ''}"><h4>Claude 主 agent（桌面端）</h4><p>${stage === 'run' ? '已派活，等副 agent 回报' : stage === 'wait' ? '有任务在等你批准' : stage === 'back' ? '收到结果，正在验证交付' : '待命，没有任务在跑'}</p></div>
+    <div class="wire ${running ? 'live' : ''}"></div>
+    <div class="node dispatch"><h4>AutoSwarm 派发</h4><p>任务说明 · 相关文件 · 完成标准</p></div>
+    <div class="wire ${running ? 'live' : ''}"></div>
+    ${lanes ? `<div class="lanes">${lanes}</div>` : '<div class="none">还没有派过活</div>'}
+    <div class="wire back ${running ? 'live' : ''}"></div>
+    <div class="node dispatch ${stage === 'back' ? 'on' : ''}"><h4>回到主 agent · 验证 · 交付</h4><p>${lastDone ? '最近一次回报 ' + clock(lastDone.finished_at) : '等待第一次回报'}</p></div>
+    <div class="stage">${st('idle', '待命', 'o')}${st('run', '派发并行执行', 'b')}${st('back', '回收验证', 'g')}</div>
+    ${logRows ? `<div class="log">${logRows}</div>` : ''}`;
+  if (html !== archLast) { archLast = html; box.innerHTML = html; }
+}
 function render() {
   const d = state.data;
   if (!d) return;
@@ -653,6 +740,7 @@ function render() {
   renderCards(d);
   renderDsh(d);
   renderOverview(d);
+  renderArch(d);
   renderCalls(d);
   renderSessions(d);
   $('#updated').textContent = '更新于 ' + clock(d.generated_at);
