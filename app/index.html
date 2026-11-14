@@ -197,38 +197,55 @@ footer{margin:clamp(48px,8vw,80px) 0 40px;font-size:12px;color:var(--text-3);lin
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 
 /* 架构实时图：纯 HTML + CSS，动画只在有任务运行时开启，只用 transform/opacity */
-.arch{background:#0d1117;color:#c9d1d9;border-radius:var(--r-panel);padding:20px 22px 16px;font-family:var(--mono);font-size:12.5px;box-shadow:var(--sh-panel);overflow:hidden}
-.arch .ah{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;color:#8b949e;margin-bottom:14px}
-.arch .ah b{color:#e6edf3;font-weight:600}
-.arch .node{border:1px solid #30363d;border-radius:10px;padding:10px 14px;background:#0d1117;position:relative}
-.arch .node.on{border-color:#58a6ff;box-shadow:0 0 0 1px rgba(88,166,255,.25)}
-.arch .node h4{font-size:13px;font-weight:600;color:#e6edf3;margin-bottom:2px}
-.arch .node p{color:#8b949e;font-size:11.5px}
-.arch .main{max-width:420px;margin:0 auto;text-align:center}
-.arch .wire{position:relative;height:26px;width:2px;margin:0 auto;background:#30363d}
-.arch .wire.live{background:linear-gradient(#58a6ff,#58a6ff)}
-.arch .wire.live::after{content:"";position:absolute;left:-3px;top:0;width:8px;height:8px;border-radius:50%;background:#58a6ff;animation:arch-flow 1.4s linear infinite}
-.arch .wire.back.live::after{background:#3fb950;animation-direction:reverse}
-@keyframes arch-flow{from{transform:translateY(0);opacity:1}to{transform:translateY(20px);opacity:.2}}
-.arch .dispatch{max-width:300px;margin:0 auto;text-align:center;padding:8px 12px}
-.arch .lanes{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
-.arch .lane h4 .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#484f58;margin-right:6px}
-.arch .lane.on h4 .dot{background:#3fb950;animation:arch-pulse 1.2s ease-in-out infinite}
+.arch{--c-main:#58a6ff;--c-sub:#a371f7;--c-cx:#f0883e;--c-ds:#3fb950;background:#0d1117;color:#c9d1d9;border-radius:var(--r-panel);padding:16px 20px 14px;font-family:var(--mono);font-size:12.5px;box-shadow:var(--sh-panel);overflow:hidden;line-height:1.5}
+.arch .ps{color:#8b949e;margin-bottom:12px}.arch .ps b{color:#e6edf3;font-weight:600}.arch .ps i{font-style:normal;color:var(--c-main)}
+.arch .top{display:grid;grid-template-columns:minmax(180px,1fr) minmax(220px,1.4fr);gap:14px 28px;margin-bottom:14px}
+.arch .tree div,.arch .share div{display:flex;gap:8px;align-items:center;white-space:nowrap}
+.arch .tree .d{width:7px;height:7px;border-radius:50%;flex:none}.arch .tree .n{color:#e6edf3}.arch .tree .r{color:#8b949e;overflow:hidden;text-overflow:ellipsis}
+.arch .h{color:#e6edf3;font-weight:600;margin-bottom:4px}
+.arch .share div{display:grid;grid-template-columns:62px 1fr 56px}
+.arch .share .bar{height:6px;border-radius:3px;background:#21262d;overflow:hidden}.arch .share .bar i{display:block;height:100%;border-radius:3px}
+.arch .share .v{text-align:right;color:#8b949e}
+.arch .node{border:1px solid #30363d;border-radius:10px;padding:9px 14px;background:#0d1117;position:relative;min-width:0}
+.arch .node.on{border-color:var(--c-main);box-shadow:0 0 0 1px rgba(88,166,255,.22)}
+.arch .node h4{font-size:13px;font-weight:600;color:#e6edf3}.arch .node .sub{color:#8b949e;font-size:11.5px}
+.arch .main{max-width:460px;margin:0 auto;text-align:center}
+.arch .wire{position:relative;height:24px;width:2px;margin:0 auto;background:#30363d}
+.arch .wire.live{background:var(--c-main)}
+.arch .wire.live::after{content:"";position:absolute;left:-3px;top:0;width:8px;height:8px;border-radius:50%;background:var(--c-main);animation:arch-flow 1.3s linear infinite}
+.arch .wire.back.live::after{background:var(--c-ds);animation-direction:reverse}
+@keyframes arch-flow{from{transform:translateY(0);opacity:1}to{transform:translateY(17px);opacity:.15}}
+.arch .dispatch{max-width:340px;margin:0 auto;text-align:center;padding:7px 12px}
+.arch .lanes{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
+.arch .lane{border-color:color-mix(in srgb,var(--lc) 45%,#30363d)}
+.arch .lane.on{border-color:var(--lc);box-shadow:0 0 0 1px color-mix(in srgb,var(--lc) 30%,transparent)}
+.arch .lane h4{display:flex;gap:6px;align-items:center;color:var(--lc)}
+.arch .lane h4 .dot{width:7px;height:7px;border-radius:50%;background:#484f58;flex:none}
+.arch .lane.on h4 .dot{background:var(--lc);animation:arch-pulse 1.2s ease-in-out infinite}
 @keyframes arch-pulse{50%{opacity:.3}}
-.arch .chips{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:4px 10px;margin:8px 0 6px}
-.arch .chip{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#6e7681}
-.arch .chip.run{color:#58a6ff}.arch .chip.ok{color:#3fb950}.arch .chip.bad{color:#f85149}.arch .chip.wait{color:#d29922}
-.arch .lane .foot{color:#6e7681;font-size:11.5px;border-top:1px dashed #21262d;padding-top:6px;margin-top:4px;display:flex;justify-content:space-between;gap:8px}
-.arch .stage{display:flex;gap:6px 18px;flex-wrap:wrap;justify-content:center;margin:14px 0 10px;font-size:14px;font-weight:600;color:#30363d}
-.arch .stage span.on{color:#e6edf3}.arch .stage span.on.g{color:#3fb950}.arch .stage span.on.b{color:#58a6ff}.arch .stage span.on.o{color:#d29922}
+.arch .rows{display:grid;gap:7px;margin:9px 0 6px}
+.arch .ag{display:grid;grid-template-columns:14px 1fr;gap:0 6px;min-width:0}
+.arch .ag .ic{grid-row:span 3}.arch .ag.run .ic{color:var(--lc)}.arch .ag.ok .ic{color:#3fb950}.arch .ag.bad .ic{color:#f85149}.arch .ag.wait .ic{color:#d29922}.arch .ag.idle .ic{color:#6e7681}
+.arch .ag .t{display:flex;gap:6px;align-items:baseline;min-width:0}
+.arch .ag .nm{color:#e6edf3;font-weight:600;white-space:nowrap}
+.arch .ag .tag{font-size:11px;color:var(--lc);border:1px solid color-mix(in srgb,var(--lc) 40%,transparent);border-radius:4px;padding:0 5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.arch .ag .md{color:#8b949e;font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.arch .ag .do{color:#8b949e;font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.arch .ag.run .do{color:#c9d1d9}
+.arch .more{color:#6e7681;font-size:11.5px}
+.arch .lane .foot{color:#6e7681;font-size:11.5px;border-top:1px dashed #21262d;padding-top:6px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.arch .stage{display:flex;gap:6px 22px;flex-wrap:wrap;justify-content:center;margin:12px 0 8px;font-size:14px;font-weight:600;color:#30363d}
+.arch .stage span.on.b{color:var(--c-main)}.arch .stage span.on.g{color:var(--c-ds)}.arch .stage span.on.o{color:#d29922}
 .arch .log{border-top:1px solid #21262d;padding-top:8px;display:grid;gap:3px}
-.arch .log div{display:grid;grid-template-columns:54px 92px 1fr auto;gap:10px;white-space:nowrap}
+.arch .log div{display:grid;grid-template-columns:44px 82px 1fr auto;gap:10px;white-space:nowrap}
 .arch .log div>*{overflow:hidden;text-overflow:ellipsis}
-.arch .log .t{color:#6e7681}.arch .log .w{color:#58a6ff}.arch .log .m{color:#c9d1d9}.arch .log .s{color:#8b949e}
-.arch .log .s.ok{color:#3fb950}.arch .log .s.bad{color:#f85149}.arch .log .s.run{color:#58a6ff}
+.arch .log .t{color:#6e7681}.arch .log .m{color:#c9d1d9}.arch .log .s{color:#8b949e}
+.arch .log .s.ok{color:#3fb950}.arch .log .s.bad{color:#f85149}.arch .log .s.run{color:var(--c-main)}
+.arch .prompt{margin-top:10px;border:1px solid #21262d;border-radius:8px;padding:6px 10px;color:#8b949e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.arch .prompt b{color:#c9d1d9;font-weight:400}
 .arch .none{text-align:center;color:#6e7681;padding:6px 0}
 @media (prefers-reduced-motion:reduce){.arch *{animation:none!important}}
-@media (max-width:640px){.arch .log div{grid-template-columns:48px 1fr auto}.arch .log .w{display:none}}
+@media (max-width:700px){.arch .top{grid-template-columns:1fr}.arch .log div{grid-template-columns:44px 1fr auto}.arch .log .w{display:none}}
 </style>
 </head>
 <body>
@@ -684,47 +701,74 @@ function renderOverview(d) {
 
 /* 架构实时图：一次只重绘变化了的内容，不放定时器、不放 canvas，占用极小 */
 let archLast = '';
-const _firstLine = t => String(t || '').split('\n').map(x => x.trim()).find(Boolean)?.slice(0, 80) || '';
+const _firstLine = t => String(t || '').split('\n').map(x => x.trim()).find(Boolean)?.slice(0, 90) || '';
+const shortModel = m => String(m || '').replace(/^claude-/, '').replace(/-\d{8}$/, '');
+const sec = () => Date.now() / 1000;
 function renderArch(d) {
   const box = $('#arch');
   const calls = (d.calls || []).filter(c => !c.probe);
-  const agents = (d.delegation?.agents || []);
+  const agents = d.delegation?.agents || [];
+  const csub = d.claude_agents || [];
   const isRunA = a => a.running > 0 || ['running', 'waiting'].includes(a.last_state);
-  const byProv = {};
-  for (const a of agents) (byProv[a.provider] = byProv[a.provider] || []).push(a);
-  const provs = Object.keys(byProv).sort((x, y) => byProv[y].filter(isRunA).length - byProv[x].filter(isRunA).length);
-  const running = agents.filter(isRunA).length;
-  const waiting = calls.filter(c => c.state === 'waiting').length;
-  const lastDone = calls.filter(c => c.finished_at).sort((a, b) => b.finished_at - a.finished_at)[0];
-  const justDone = !running && lastDone && Date.now() / 1000 - lastDone.finished_at < 600;
+  const lastCall = {};
+  for (const c of calls) { const k = `${c.provider}|${c.name || c.agent_id}`; if (!lastCall[k] || (c.created_at || 0) >= (lastCall[k].created_at || 0)) lastCall[k] = c; }
+  const vendorOf = a => { const m = String(a.model || ''); return m.includes('/') ? m.split('/')[0] : (a.provider === 'dsh' ? 'deepseek' : ''); };
+  const norm = [];   // one shape for every lane
+  for (const a of agents) {
+    const c = lastCall[a.key] || {}, run = isRunA(a);
+    const st = run ? (a.last_state === 'waiting' ? 'wait' : 'run') : a.last_state === 'completed' ? 'ok' : ['failed', 'lost', 'cancelled', 'unknown'].includes(a.last_state) ? 'bad' : 'idle';
+    const model = String(a.model || '').includes('/') ? a.model.split('/').slice(1).join('/') : a.model;
+    norm.push({ lane: a.provider, name: a.name || String(a.agent_id).slice(0, 8), st, last: a.last_at || 0,
+      tag: a.provider === 'dsh' ? `${vendorOf(a) || 'deepseek'} · ${ROUTE[a.route] || 'API'}` : (ROUTE[a.route] || ''),
+      md: [shortModel(model), a.effort ? '思考 ' + a.effort : ''].filter(Boolean).join(' · '),
+      doing: run ? (c.activity?.text || '处理：' + _firstLine(a.last_task)) : (st === 'ok' ? '已完成：' : st === 'bad' ? '失败：' : '') + _firstLine(a.last_task), tokens: a.tokens || 0, run: run ? 1 : 0, done: a.completed, bad: a.failed });
+  }
+  for (const a of csub) {
+    const run = a.state === 'running';
+    norm.push({ lane: 'claude-sub', name: a.name, st: run ? 'run' : 'ok', last: a.last_at || 0, tag: a.role, md: shortModel(a.model),
+      doing: run ? (a.activity?.text || '处理：' + a.task) : '已完成：' + a.task, tokens: a.tokens || 0, run: run ? 1 : 0, done: run ? 0 : 1, bad: 0 });
+  }
+  const LANES = [['claude-sub', 'Claude 内部子 agent', '--c-sub'], ['codex', 'Codex', '--c-cx'], ['dsh', 'DSH · DeepSeek / Claude API', '--c-ds'], ['opencode', 'OpenCode', '--c-cx']];
+  const laneIds = LANES.filter(([id]) => norm.some(x => x.lane === id));
+  const running = norm.filter(x => x.run).length, waiting = norm.filter(x => x.st === 'wait').length;
+  const lastDone = calls.filter(c => c.finished_at).sort((x, y) => y.finished_at - x.finished_at)[0];
+  const lastSub = csub.filter(a => a.state !== 'running').sort((x, y) => y.last_at - x.last_at)[0];
+  const doneAt = Math.max(lastDone?.finished_at || 0, lastSub?.last_at || 0);
+  const justDone = !running && doneAt && sec() - doneAt < 600;
   const stage = running ? (waiting ? 'wait' : 'run') : (justDone ? 'back' : 'idle');
-  const icon = a => a.running > 0 || a.last_state === 'running' ? ['run', '●'] : a.last_state === 'waiting' ? ['wait', '◐'] : a.last_state === 'completed' ? ['ok', '✓'] : ['bad', '✗'];
-  const lanes = provs.map(pv => {
-    const list = byProv[pv], on = list.filter(isRunA).length;
-    const shown = list.slice(0, 12);
-    const model = (list.find(isRunA) || list[0]);
-    const done = list.reduce((n, a) => n + a.completed, 0), bad = list.reduce((n, a) => n + a.failed, 0);
-    return `<div class="node lane ${on ? 'on' : ''}"><h4><span class="dot"></span>${esc(PNAME[pv] || pv)}</h4>
-      <p>${esc(model.model || '模型未知')}${model.effort ? ' · 思考 ' + esc(model.effort) : ''}${model.route ? ' · ' + esc(ROUTE[model.route] || model.route) : ''}</p>
-      <div class="chips">${shown.map(a => { const [k, ic] = icon(a); return `<span class="chip ${k}" title="${esc((a.name || a.agent_id) + ' · ' + (a.last_task || ''))}">${ic} ${esc(a.name || String(a.agent_id).slice(0, 8))}</span>`; }).join('')}${list.length > shown.length ? `<span class="chip">… 还有 ${list.length - shown.length} 个</span>` : ''}</div>
-      <div class="foot"><span>${on ? '运行 ' + on : '空闲'} · 累计完成 ${done}${bad ? ' · 异常 ' + bad : ''}</span><span>${tokens(list.reduce((n, a) => n + (a.tokens || 0), 0))} token</span></div></div>`;
+  const lanesHtml = laneIds.map(([id, title, col]) => {
+    const list = norm.filter(x => x.lane === id).sort((x, y) => (y.run - x.run) || (y.last - x.last));
+    const on = list.filter(x => x.run).length, shown = list.slice(0, 6);
+    const ic = { run: '●', ok: '✓', bad: '✗', wait: '◐', idle: '○' };
+    return `<div class="node lane ${on ? 'on' : ''}" style="--lc:var(${col})"><h4><span class="dot"></span>${esc(title)}<span class="sub">· ${on ? '运行 ' + on : '空闲'}</span></h4>
+      <div class="rows">${shown.map(x => `<div class="ag ${x.st}"><span class="ic">${ic[x.st]}</span>
+        <div class="t"><span class="nm">${esc(x.name)}</span>${x.tag ? `<span class="tag">${esc(x.tag)}</span>` : ''}</div>
+        <div class="md">${esc(x.md) || '&nbsp;'}</div><div class="do" title="${esc(x.doing)}">${esc(x.doing)}</div></div>`).join('')}
+        ${list.length > shown.length ? `<div class="more">… 还有 ${list.length - shown.length} 个（点下方「副 agent 总览」查看）</div>` : ''}</div>
+      <div class="foot"><span>累计完成 ${list.reduce((n, x) => n + x.done, 0)}${list.some(x => x.bad) ? ' · 异常 ' + list.reduce((n, x) => n + x.bad, 0) : ''}</span><span>${tokens(list.reduce((n, x) => n + x.tokens, 0))} token</span></div></div>`;
   }).join('');
-  const logRows = calls.slice().sort((a, b) => (b.finished_at || b.created_at || 0) - (a.finished_at || a.created_at || 0)).slice(0, 6).map(c => {
-    const t = c.finished_at || c.created_at;
-    const [k, w] = c.state === 'completed' ? ['ok', '完成'] : ['running', 'waiting'].includes(c.state) ? ['run', c.state === 'waiting' ? '待批准' : '进行中'] : ['bad', '异常'];
-    return `<div><span class="t">${t ? clock(t) : ''}</span><span class="w">${esc(PNAME[c.provider] || c.provider)}</span><span class="m">${esc(c.name || '')}${c.name ? ' · ' : ''}${esc(_firstLine(c.prompt))}</span><span class="s ${k}">${w}</span></div>`;
-  }).join('');
+  const tokOf = id => norm.filter(x => x.lane === id).reduce((n, x) => n + x.tokens, 0), maxTok = Math.max(1, ...laneIds.map(([id]) => tokOf(id)));
+  const tree = [['--c-main', 'Claude 主 agent', '调度 · 验证 · 交付'], ...laneIds.map(([id, t, c]) => [c, t, `${norm.filter(x => x.lane === id).length} 个 · ${norm.filter(x => x.lane === id && x.run).length} 在跑`])]
+    .map(([c, n, r]) => `<div><span class="d" style="background:var(${c})"></span><span class="n">${esc(n)}</span><span class="r">${esc(r)}</span></div>`).join('');
+  const share = laneIds.map(([id, t, c]) => `<div><span>${esc(id === 'claude-sub' ? 'Claude' : id === 'dsh' ? 'DSH' : t)}</span><span class="bar"><i style="width:${Math.max(2, tokOf(id) / maxTok * 100)}%;background:var(--${c.slice(2)})"></i></span><span class="v">${tokens(tokOf(id))}</span></div>`).join('');
+  const events = [...calls.map(c => ({ t: c.finished_at || c.created_at, w: PNAME[c.provider] || c.provider, m: (c.name ? c.name + ' · ' : '') + _firstLine(c.prompt), st: c.state === 'completed' ? 'ok' : ['running', 'waiting'].includes(c.state) ? 'run' : 'bad', lab: c.state === 'completed' ? '完成' : c.state === 'waiting' ? '待批准' : ['running'].includes(c.state) ? '进行中' : '异常' })),
+    ...csub.map(a => ({ t: a.state === 'running' ? a.last_at : a.last_at, w: 'Claude', m: a.role + ' · ' + a.name, st: a.state === 'running' ? 'run' : 'ok', lab: a.state === 'running' ? '进行中' : '完成' }))]
+    .filter(e => e.t).sort((x, y) => y.t - x.t).slice(0, 6);
+  const logHtml = events.map(e => `<div><span class="t">${clock(e.t)}</span><span class="w" style="color:var(--c-main)">${esc(e.w)}</span><span class="m">${esc(e.m)}</span><span class="s ${e.st}">${e.lab}</span></div>`).join('');
   const st = (key, label, cls) => `<span class="${stage === key || (key === 'run' && stage === 'wait') ? 'on ' + cls : ''}">${label}</span>`;
-  const html = `<div class="ah"><span><b>Claude 主 agent</b> → AutoSwarm → 副 agent</span><span>正在运行 <b>${running}</b> · 副 agent 共 <b>${agents.length}</b></span></div>
-    <div class="node main ${running || justDone ? 'on' : ''}"><h4>Claude 主 agent（桌面端）</h4><p>${stage === 'run' ? '已派活，等副 agent 回报' : stage === 'wait' ? '有任务在等你批准' : stage === 'back' ? '收到结果，正在验证交付' : '待命，没有任务在跑'}</p></div>
+  const newest = norm.filter(x => x.run).sort((x, y) => y.last - x.last)[0];
+  const html = `<div class="ps">PS&gt; <b>autoswarm</b> <i>watch</i> · 实时数据，每 15 秒更新</div>
+    <div class="top"><div class="tree"><div class="h">agent 架构</div>${tree}</div><div class="share"><div class="h">各路累计 token</div>${share || '<div>还没有数据</div>'}</div></div>
+    <div class="node main ${running || justDone ? 'on' : ''}"><h4>Claude 主 agent（桌面端 / Claude Code）</h4><div class="sub">${stage === 'run' ? '已分派，等副 agent 回报' : stage === 'wait' ? '有任务在等你批准' : stage === 'back' ? '收到结果，正在验证交付' : '待命，没有任务在跑'}</div></div>
     <div class="wire ${running ? 'live' : ''}"></div>
-    <div class="node dispatch"><h4>AutoSwarm 派发</h4><p>任务说明 · 相关文件 · 完成标准</p></div>
+    <div class="node dispatch"><h4>派发</h4><div class="sub">AutoSwarm 派活 · Claude 内部 Agent 工具</div></div>
     <div class="wire ${running ? 'live' : ''}"></div>
-    ${lanes ? `<div class="lanes">${lanes}</div>` : '<div class="none">还没有派过活</div>'}
+    ${lanesHtml ? `<div class="lanes">${lanesHtml}</div>` : '<div class="none">还没有派过活</div>'}
     <div class="wire back ${running ? 'live' : ''}"></div>
-    <div class="node dispatch ${stage === 'back' ? 'on' : ''}"><h4>回到主 agent · 验证 · 交付</h4><p>${lastDone ? '最近一次回报 ' + clock(lastDone.finished_at) : '等待第一次回报'}</p></div>
+    <div class="node dispatch ${stage === 'back' ? 'on' : ''}"><h4>回到主 agent · 验证 · 交付</h4><div class="sub">${doneAt ? '最近一次回报 ' + clock(doneAt) : '等待第一次回报'}</div></div>
     <div class="stage">${st('idle', '待命', 'o')}${st('run', '派发并行执行', 'b')}${st('back', '回收验证', 'g')}</div>
-    ${logRows ? `<div class="log">${logRows}</div>` : ''}`;
+    ${logHtml ? `<div class="log">${logHtml}</div>` : ''}
+    <div class="prompt">&gt; ${newest ? `<b>${esc(newest.name)}</b> ${esc(newest.doing)}` : '没有正在运行的任务'}</div>`;
   if (html !== archLast) { archLast = html; box.innerHTML = html; }
 }
 function render() {

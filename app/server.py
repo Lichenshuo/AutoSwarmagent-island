@@ -1825,6 +1825,120 @@ def _first_line(text, limit=90):
     return ""
 
 
+# ---- Claude's own sub-agents (Task / Agent tool): ~/.claude/projects/<project>/<session>/subagents/agent-*.jsonl ----
+_csub_cache = {}
+
+
+def _tool_brief(name, inp):
+    inp = inp if isinstance(inp, dict) else {}
+    arg = inp.get("file_path") or inp.get("path") or inp.get("command") or inp.get("pattern") or inp.get("query") or inp.get("url") or inp.get("description") or ""
+    return (name or "工具") + (" " + _short(os.path.basename(arg) if inp.get("file_path") or inp.get("path") else arg, 60) if arg else "")
+
+
+def _csub_parent_roles(session_file):
+    """agentId → {role, description} read from the parent session: the Agent/Task tool call that spawned each sub-agent."""
+    out, uses = {}, {}
+    try:
+        with open(session_file, "r", encoding="utf-8", errors="ignore") as fh:
+            for line in fh:
+                if "agentId" not in line and '"Agent"' not in line and '"Task"' not in line:
+                    continue
+                try:
+                    row = json.loads(line)
+                except ValueError:
+                    continue
+                content = (row.get("message") or {}).get("content")
+                for b in content if isinstance(content, list) else []:
+                    if b.get("type") == "tool_use" and b.get("name") in ("Agent", "Task") and isinstance(b.get("input"), dict):
+                        uses[b.get("id")] = b["input"]
+                    elif b.get("type") == "tool_result":
+                        res = row.get("toolUseResult")
+                        aid = res.get("agentId") if isinstance(res, dict) else None
+                        if aid and b.get("tool_use_id") in uses:
+                            out[aid] = uses[b["tool_use_id"]]
+    except OSError:
+        pass
+    return out
+
+
+def _csub_scan(path):
+    tokens, model, first_ts, last_ts, prompt, last_act, agent_id, n_tool = 0, None, None, None, "", None, None, 0
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore") as fh:
+            for line in fh:
+                try:
+                    row = json.loads(line)
+                except ValueError:
+                    continue
+                ts = iso_to_ts(row.get("timestamp"))
+                if ts:
+                    first_ts, last_ts = first_ts or ts, ts
+                agent_id = agent_id or row.get("agentId")
+                msg = row.get("message") or {}
+                content = msg.get("content")
+                if row.get("type") == "user" and not prompt:
+                    text = content if isinstance(content, str) else next((b.get("text") for b in content or [] if isinstance(b, dict) and b.get("type") == "text"), "")
+                    prompt = text or ""
+                if row.get("type") == "assistant":
+                    u = msg.get("usage") or {}
+                    tokens += sum(int(u.get(k) or 0) for k in ("input_tokens", "output_tokens", "cache_creation_input_tokens"))
+                    model = msg.get("model") or model
+                    for b in content if isinstance(content, list) else []:
+                        if b.get("type") == "tool_use":
+                            n_tool += 1
+                            last_act = {"text": "运行 " + _tool_brief(b.get("name"), b.get("input")), "at": ts}
+                        elif b.get("type") == "text" and (b.get("text") or "").strip():
+                            last_act = {"text": "回复：" + _short(b["text"].strip(), 80), "at": ts}
+                        elif b.get("type") == "thinking":
+                            last_act = {"text": "思考中", "at": ts}
+    except OSError:
+        return None
+    return {"tokens": tokens, "model": model, "first_ts": first_ts, "last_ts": last_ts, "prompt": prompt, "activity": last_act, "agent_id": agent_id, "tools": n_tool}
+
+
+def claude_subagents(window=2 * 86400, limit=40, running_within=120):
+    """Recently active Claude sub-agents with role, model, tokens and what they are doing right now. Never raises."""
+    try:
+        now, found = time.time(), []
+        for path in CLAUDE_PROJECTS.glob("*/*/subagents/agent-*.jsonl"):
+            try:
+                st = path.stat()
+            except OSError:
+                continue
+            if now - st.st_mtime < window:
+                found.append((st.st_mtime, path, st))
+        found.sort(key=lambda x: x[0], reverse=True)
+        roles, out = {}, []
+        for mtime, path, st in found[:limit]:
+            key = str(path)
+            hit = _csub_cache.get(key)
+            if not hit or hit[0] != (st.st_mtime, st.st_size):
+                info = _csub_scan(path)
+                if info is None:
+                    continue
+                _csub_cache[key] = hit = ((st.st_mtime, st.st_size), info)
+            info = hit[1]
+            session_dir = path.parent.parent
+            session_file = session_dir.with_suffix(".jsonl")
+            if str(session_file) not in roles:
+                roles[str(session_file)] = _csub_parent_roles(session_file) if session_file.exists() else {}
+            aid = info.get("agent_id") or path.stem.replace("agent-", "")
+            spec = roles[str(session_file)].get(aid) or {}
+            meta = read_json(path.with_suffix(".meta.json")) or {}
+            role = spec.get("subagent_type") or meta.get("agentType") or "子 agent"
+            desc = spec.get("description") or meta.get("description") or _first_line(info["prompt"], 60)
+            idle = now - mtime
+            out.append({"id": aid, "role": role, "name": desc, "task": _first_line(info["prompt"], 90), "model": info["model"],
+                        "tokens": info["tokens"], "tools": info["tools"], "state": "running" if idle < running_within else "completed",
+                        "started_at": info["first_ts"], "last_at": info["last_ts"] or mtime, "activity": info["activity"] if idle < running_within else None,
+                        "project": session_dir.parent.name, "session": session_dir.name})
+        for key in [k for k in _csub_cache if k not in {str(p) for _, p, _ in found}]:
+            _csub_cache.pop(key, None)
+        return out
+    except Exception:
+        return []
+
+
 def delegation_summary(calls):
     """Everything dispatched so far, grouped by sub-agent (the name, or the conversation when unnamed)."""
     real = [c for c in calls if not c["probe"]]
@@ -1951,6 +2065,7 @@ def snapshot():
         "dismissed": sorted(dismissed),
         "restart_needed": restart_needed(),
         "delegation": delegation_summary(calls),
+        "claude_agents": cached("claude-subagents", 10, claude_subagents),
         "dsh": dsh_now,
         "summary": {
             "calls_today": sum(1 for c in real if c["created_at"] and local_day(c["created_at"]) == today),
