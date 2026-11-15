@@ -2278,25 +2278,34 @@ def dsh_calls_debug():
 
 
 def codex_calls_debug():
-    """Per Codex dispatch: which fields AutoSwarm recorded and which source the island will file it under. No prompts, no secrets."""
+    """Summary of how Codex / DSH dispatches are recorded and which source the island files them under. No prompts, no secrets."""
     def clean(v, depth=0):
         if isinstance(v, dict):
-            return {k: ("***" if re.search(r"key|token|secret|auth|password", k, re.I) else clean(x, depth + 1)) for k, x in v.items()} if depth < 3 else "{...}"
+            return {k: ("***" if re.search(r"key|token|secret|auth|password|bearer", k, re.I) else clean(x, depth + 1)) for k, x in v.items()} if depth < 3 else "{...}"
         if isinstance(v, list):
-            return [clean(x, depth + 1) for x in v[:5]]
-        return v if not isinstance(v, str) else v[:80]
-    rows = 0
+            return [clean(x, depth + 1) for x in v[:6]]
+        if isinstance(v, str):
+            return "***" if re.search(r"sk-[A-Za-z0-9]|bearer ", v, re.I) else v[:100]
+        return v
+    groups = {}
     for task, info in _inspect_all():
-        if task["provider"] != "codex":
+        if task["provider"] not in ("codex", "dsh"):
             continue
-        created = iso_to_ts(task.get("created_at"))
-        print(json.dumps({"name": (task.get("communication") or {}).get("name"), "at": datetime.fromtimestamp(created).strftime("%m-%d %H:%M") if created else None,
-                          "model": task.get("model"), "effort": task.get("effort"), "top_level_keys": sorted(task.keys()),
-                          "native_options": clean(task.get("native_options") or {}), "route": task.get("route"),
-                          "island_files_it_under": "Codex API" if codex_route(task) == "api" else "Codex 桌面端"}, ensure_ascii=False))
-        rows += 1
-    if not rows:
-        print("没有找到 Codex 的派活记录")
+        cmd = task.get("command")
+        sig = json.dumps({"provider": task["provider"], "provider_args": clean(task.get("provider_args") or {}),
+                          "command": clean(cmd if isinstance(cmd, (list, dict)) else str(cmd or "")[:100]),
+                          "native_options_keys": sorted((task.get("native_options") or {}).keys()),
+                          "route": task.get("route")}, ensure_ascii=False, sort_keys=True)
+        g = groups.setdefault(sig, {"count": 0, "models": {}, "example": None})
+        g["count"] += 1
+        m = task.get("model") or (task.get("native_options") or {}).get("model") or "-"
+        g["models"][m] = g["models"].get(m, 0) + 1
+        g["example"] = g["example"] or (task.get("communication") or {}).get("name")
+        g["filed"] = "Codex API" if task["provider"] == "codex" and codex_route(task) == "api" else ("Codex 桌面端" if task["provider"] == "codex" else "DSH")
+    for sig, g in sorted(groups.items(), key=lambda kv: -kv[1]["count"]):
+        print(json.dumps({"count": g["count"], "filed_under": g["filed"], "example_agent": g["example"], "models": g["models"], "recorded": json.loads(sig)}, ensure_ascii=False))
+    if not groups:
+        print("没有找到 Codex / DSH 的派活记录")
     return 0
 
 
