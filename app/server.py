@@ -2277,6 +2277,29 @@ def dsh_calls_debug():
     return 0
 
 
+def codex_calls_debug():
+    """Per Codex dispatch: which fields AutoSwarm recorded and which source the island will file it under. No prompts, no secrets."""
+    def clean(v, depth=0):
+        if isinstance(v, dict):
+            return {k: ("***" if re.search(r"key|token|secret|auth|password", k, re.I) else clean(x, depth + 1)) for k, x in v.items()} if depth < 3 else "{...}"
+        if isinstance(v, list):
+            return [clean(x, depth + 1) for x in v[:5]]
+        return v if not isinstance(v, str) else v[:80]
+    rows = 0
+    for task, info in _inspect_all():
+        if task["provider"] != "codex":
+            continue
+        created = iso_to_ts(task.get("created_at"))
+        print(json.dumps({"name": (task.get("communication") or {}).get("name"), "at": datetime.fromtimestamp(created).strftime("%m-%d %H:%M") if created else None,
+                          "model": task.get("model"), "effort": task.get("effort"), "top_level_keys": sorted(task.keys()),
+                          "native_options": clean(task.get("native_options") or {}), "route": task.get("route"),
+                          "island_files_it_under": "Codex API" if codex_route(task) == "api" else "Codex 桌面端"}, ensure_ascii=False))
+        rows += 1
+    if not rows:
+        print("没有找到 Codex 的派活记录")
+    return 0
+
+
 def find_desktop():
     print("Searching AppData for Claude Desktop's plan-usage-history.json (up to a minute)...", flush=True)
     files = list(dict.fromkeys(desktop_history_files()[1] + wide_search(limit=60.0, depth=8)))
@@ -2321,6 +2344,7 @@ def main():
     parser.add_argument("--deepseek-total", nargs=2, metavar=("CURRENCY", "TOTAL"),
                         help="everything ever credited to DeepSeek (top-ups + grants), to show an exact used amount")
     parser.add_argument("--currency", default=None, help="with --dsh-price: currency the prices are in")
+    parser.add_argument("--codex-calls", action="store_true", help="show, per Codex dispatch, the recorded fields and whether it is filed under Codex desktop or Codex API")
     parser.add_argument("--dsh-calls", action="store_true", help="show, per DSH dispatch, the model/effort AutoSwarm recorded vs what the session shows")
     parser.add_argument("--find-desktop", action="store_true",
                         help="search this PC for Claude Desktop's usage file and remember where it is")
@@ -2339,6 +2363,8 @@ def main():
         return find_desktop()
     if args.dsh_calls:
         return dsh_calls_debug()
+    if args.codex_calls:
+        return codex_calls_debug()
     if args.dsh_price or args.dsh_credit or args.deepseek_total:
         return set_dsh_config(args)
     if args.calibrate is not None:
