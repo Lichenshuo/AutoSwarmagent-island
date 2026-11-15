@@ -196,125 +196,96 @@ footer{margin:clamp(48px,8vw,80px) 0 40px;font-size:12px;color:var(--text-3);lin
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 
-/* 架构实时图：深色终端风（照视频）。中文用无衬线字体、模型和数字用等宽；连线全部首尾相接；动画只用 transform/opacity，只在有任务时才开 */
-.arch{--c-main:#79c0ff;--c-plan:#b392f0;--c-build:#58a6ff;--c-check:#f0883e;--c-swarm:#3fb950;--c-verify:#e3b341;--c-gpt:#2bd4b0;--bg:#0d1117;--bg2:#0a0d12;--ln:#30363d;--tx:#e6edf3;--tx2:#a3acb7;--tx3:#7d8590;--sp:cubic-bezier(.32,.72,0,1);--gap:30px;
-  background:var(--bg);color:#c9d1d9;border-radius:var(--r-panel);padding:24px 26px 18px;font-family:var(--font);font-size:13px;line-height:1.6;box-shadow:var(--sh-panel);overflow:hidden}
-.arch .ps,.arch .chip,.arch .pn,.arch .pv,.arch .log .t,.arch .foot,.arch .afoot,.arch .prompt,.arch .wake b{font-family:var(--mono)}
-.arch .ps{color:var(--tx3);font-size:12px;margin-bottom:12px;white-space:pre-wrap}.arch .ps b{color:var(--tx)}.arch .ps i{font-style:normal;color:var(--c-main)}
-.arch .mute{color:var(--tx3);font-size:12px}
-/* 顶部 agent 树 */
-.arch .legend{display:flex;flex-wrap:wrap;gap:8px 22px;margin-bottom:14px}
-.arch .legend>span{display:inline-flex;align-items:center;gap:7px;white-space:nowrap;font-size:12.5px}
-.arch .legend b{font-weight:600;color:var(--tx)}
-.arch .legend .d{width:8px;height:8px;border-radius:50%;flex:none}
-/* 模型 + 思考强度标签 */
-.arch .chip{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;color:var(--tx);background:color-mix(in srgb,var(--mc) 16%,transparent);border:1px solid color-mix(in srgb,var(--mc) 55%,transparent);border-radius:6px;padding:0 7px;line-height:20px;white-space:nowrap}
+/* 架构实时图：深色终端风（照视频）。少字、同类 agent 合并成一行；连线由整块元素画出，不会断；动画是沿线流动的光和缓慢呼吸的光晕，只在有任务时开 */
+.arch{--c-main:#79c0ff;--c-plan:#b392f0;--c-build:#58a6ff;--c-check:#f0883e;--c-swarm:#3fb950;--c-verify:#e3b341;--c-gpt:#2bd4b0;--bg:#0d1117;--bg2:#0a0d12;--ln:#2a3038;--tx:#e6edf3;--tx2:#a3acb7;--tx3:#7d8590;--sp:cubic-bezier(.32,.72,0,1);--cg:22px;
+  background:var(--bg);color:#c9d1d9;border-radius:var(--r-panel);padding:22px 26px 18px;font-family:var(--font);font-size:13px;line-height:1.55;box-shadow:var(--sh-panel);overflow:hidden}
+.arch .ps,.arch .chip,.arch .pn,.arch .pv,.arch .log .t,.arch .wake,.arch .back span{font-family:var(--mono)}
+.arch .ps{color:var(--tx3);font-size:12px;margin-bottom:14px}.arch .ps b{color:var(--tx)}.arch .ps i{font-style:normal;color:var(--c-main)}
+.arch .chip{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;color:var(--tx);background:color-mix(in srgb,var(--mc) 14%,transparent);border:1px solid color-mix(in srgb,var(--mc) 50%,transparent);border-radius:6px;padding:0 7px;line-height:20px;white-space:nowrap}
 .arch .chip em{font-style:normal;font-weight:500;color:var(--mc);padding-left:6px;border-left:1px solid color-mix(in srgb,var(--mc) 40%,transparent)}
-.arch .chips{display:inline-flex;gap:6px;flex-wrap:wrap;align-items:center;min-width:0}
-/* 单价条 */
-.arch .price{border:1px solid #21262d;border-radius:12px;padding:10px 16px 12px;margin-bottom:22px;display:grid;gap:4px}
-.arch .price:empty{display:none}
-.arch .pt{display:flex;justify-content:space-between;gap:12px;color:var(--tx3);font-size:11.5px;margin-bottom:2px}.arch .pt span:last-child{color:var(--tx2)}
-.arch .pr{display:grid;grid-template-columns:112px 1fr 52px;gap:12px;align-items:center;line-height:1.35}
-.arch .pn{color:var(--tx2);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.arch .pb{height:4px;border-radius:2px;background:#161b22;overflow:hidden}.arch .pb i{display:block;height:100%;border-radius:0 3px 3px 0;transition:width .7s var(--sp)}
-.arch .pv{color:var(--tx);font-size:12px;text-align:right}
-/* 大框 = 分工 */
-.arch .big{position:relative;border:1px solid var(--ln);border-radius:16px;padding:14px 16px 16px;background:var(--bg2);transition:border-color .5s var(--sp),box-shadow .6s var(--sp),background .5s;min-width:0}
-.arch .bh{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.arch .bt{font-size:15px;font-weight:700;color:var(--gc);letter-spacing:.01em}
-.arch .bt::before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--gc);opacity:.45;margin-right:9px;vertical-align:2px;transition:opacity .4s}
-.arch .bh .st{margin-left:auto;font-size:12px;color:var(--tx3);white-space:nowrap}
-.arch .bs{color:var(--tx2);font-size:12px;margin:4px 0 12px 17px}
-.arch .big.on{border-color:var(--gc);background:color-mix(in srgb,var(--gc) 5%,var(--bg2));box-shadow:0 0 0 1px color-mix(in srgb,var(--gc) 30%,transparent),0 0 32px color-mix(in srgb,var(--gc) 20%,transparent)}
-.arch .big.on .bt::before{opacity:1;animation:arch-pulse 1.4s ease-in-out infinite}
-.arch .big.on>.bh .st{color:var(--gc);font-weight:600}
+/* 单价 */
+.arch .price{display:grid;gap:3px;margin:0 0 22px;padding:0 2px}.arch .price:empty{display:none}
+.arch .pr{display:grid;grid-template-columns:100px 1fr 46px;gap:12px;align-items:center;line-height:1.3}
+.arch .pn{color:var(--tx2);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.arch .pb{height:3px;border-radius:2px;background:#161b22;overflow:hidden}.arch .pb i{display:block;height:100%;border-radius:2px;transition:width .8s var(--sp)}
+.arch .pv{color:var(--tx);font-size:11.5px;text-align:right}
+.arch .pt{color:var(--tx3);font-size:11px;text-align:right}
+/* 大框 */
+.arch .big{position:relative;border:1px solid var(--ln);border-radius:14px;padding:13px 15px 15px;background:var(--bg2);transition:border-color .6s var(--sp),background .6s;min-width:0}
+.arch .big::before{content:"";position:absolute;inset:-1px;border-radius:15px;pointer-events:none;box-shadow:0 0 0 1px color-mix(in srgb,var(--gc) 35%,transparent),0 0 28px color-mix(in srgb,var(--gc) 28%,transparent);opacity:0;transition:opacity .6s}
+.arch .big.on{border-color:color-mix(in srgb,var(--gc) 75%,transparent);background:color-mix(in srgb,var(--gc) 4%,var(--bg2))}
+.arch .big.on::before{animation:arch-breathe 3.6s ease-in-out infinite}
+.arch .bh{display:flex;align-items:center;gap:10px;min-height:22px}.arch .mdw{display:flex;align-items:center}
+.arch .bt{font-size:14.5px;font-weight:700;color:var(--gc)}
+.arch .bt small{font-size:12px;font-weight:500;color:var(--tx2);margin-left:6px}
+.arch .bh .st{margin-left:auto;font-size:12px;color:var(--tx3);white-space:nowrap;transition:color .4s}
+.arch .big.on>.bh .st{color:var(--gc)}
 .arch .big.miss{border-style:dashed}.arch .big.miss>.bh .st{color:#d29922}
 .arch .g-main{--gc:var(--c-main)}.arch .g-exec{--gc:var(--c-build)}.arch .g-gate{--gc:var(--c-check)}.arch .g-adv{--gc:var(--c-plan)}
-.arch .sm-wrap{display:grid;gap:12px}.arch .sm-wrap.two{grid-template-columns:1fr 1fr}
+.arch .two{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
+.arch .stack{display:grid;gap:12px;margin-top:12px}
+.arch .cols{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--cg);align-items:stretch}
 /* 顾问检查点 */
-.arch .cps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) auto;gap:10px;align-items:stretch}
-.arch .cp{border:1px solid var(--ln);border-radius:9px;padding:7px 11px;line-height:1.45;transition:border-color .4s,background .4s}
-.arch .cp b{display:block;font-size:12.5px;color:var(--tx2);font-weight:600}.arch .cp span{display:block;font-size:11.5px;color:var(--tx3)}
-.arch .cp.on{border-color:var(--c-plan);background:color-mix(in srgb,var(--c-plan) 20%,transparent)}.arch .cp.on b{color:var(--tx)}
-.arch .cp.dn{border-color:color-mix(in srgb,var(--c-plan) 45%,var(--ln))}.arch .cp.dn b{color:var(--c-plan)}
-.arch .wake{display:flex;flex-direction:column;justify-content:center;align-items:flex-end;color:var(--tx3);font-size:11.5px;padding:0 4px}.arch .wake b{color:var(--c-plan);font-size:15px}
-/* 连线：全部首尾相接 */
-.arch .cline,.arch .wire{position:relative;width:0;height:var(--gap);margin:0 auto;border-left:2px solid var(--ln);transition:border-color .4s}
-.arch .cline{border-left-style:dashed}
-.arch .cline em{position:absolute;left:10px;top:50%;transform:translateY(-50%);font-style:normal;font-size:11.5px;color:var(--tx3);white-space:nowrap}
-.arch .cline.live{border-left:2px solid var(--c-plan)}.arch .cline.live em{color:var(--c-plan)}
-.arch .wire.live{border-left-color:var(--c-main)}.arch .wire.back.live{border-left-color:var(--c-swarm)}
-.arch .cline.live::after,.arch .wire.live::after{content:"";position:absolute;left:-5px;top:0;width:8px;height:8px;border-radius:50%;background:var(--c-plan);animation:arch-flow 1.2s linear infinite}
-.arch .wire.live::after{background:var(--c-main)}.arch .wire.back.live::after{background:var(--c-swarm);animation-direction:reverse}
-.arch .bigrow{position:relative;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;padding:var(--gap) 0;align-items:stretch}
-.arch .bigrow::before,.arch .bigrow::after{content:"";position:absolute;left:calc(25% - 5px);right:calc(25% - 5px);height:0;border-top:2px solid var(--ln);transition:border-color .4s}
-.arch .bigrow::before{top:0}.arch .bigrow::after{bottom:0}
-.arch .bigrow.live::before{border-top-color:var(--c-main)}.arch .bigrow.live::after{border-top-color:var(--c-swarm)}
-.arch .big>.up,.arch .big>.dn{position:absolute;left:50%;width:0;height:var(--gap);margin-left:-1px;border-left:2px solid var(--ln);transition:border-color .4s}
-.arch .big>.up{top:calc(-1 * var(--gap) - 1px)}.arch .big>.dn{bottom:calc(-1 * var(--gap) - 1px)}
-.arch .big.on>.up,.arch .big.on>.dn{border-left-color:var(--gc)}
-.arch .big.on>.up::after{content:"";position:absolute;left:-5px;top:0;width:8px;height:8px;border-radius:50%;background:var(--gc);animation:arch-flow 1.2s linear infinite}
+.arch .cps{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:11px}
+.arch .cp{font-size:12px;color:var(--tx3);border:1px solid var(--ln);border-radius:999px;padding:2px 12px;transition:all .5s var(--sp)}
+.arch .cp.dn{color:var(--c-plan);border-color:color-mix(in srgb,var(--c-plan) 40%,var(--ln))}
+.arch .cp.on{color:var(--tx);border-color:var(--c-plan);background:color-mix(in srgb,var(--c-plan) 22%,transparent);box-shadow:0 0 14px color-mix(in srgb,var(--c-plan) 35%,transparent)}
+.arch .wake{margin-left:auto;color:var(--c-plan);font-size:12px}
 /* 小框 = 角色 */
-.arch .rl{--lc:#7d8590;position:relative;background:var(--bg);border:1px solid var(--ln);border-radius:12px;padding:11px 13px 12px;transition:border-color .45s var(--sp),box-shadow .6s var(--sp),transform .45s var(--sp);min-width:0}
+.arch .rl{--lc:var(--tx3);position:relative;background:var(--bg);border:1px solid var(--ln);border-radius:11px;padding:10px 12px;transition:border-color .6s var(--sp),opacity .6s;min-width:0}
 .arch .r-build{--lc:var(--c-build)}.arch .r-check{--lc:var(--c-check)}.arch .r-duty{--lc:var(--c-swarm)}.arch .r-verify{--lc:var(--c-verify)}.arch .r-ana,.arch .r-asg{--lc:var(--c-main)}
-.arch .rl.sm:not(.ctl){cursor:pointer}
-.arch .rl:hover{transform:translateY(-1px);border-color:color-mix(in srgb,var(--lc) 60%,var(--ln))}
-.arch .rl h4{display:flex;gap:8px;align-items:center;font-size:14px;font-weight:650;line-height:1.4}
-.arch .rl h4 .nm{color:var(--lc)}
-.arch .rl h4 .dot{width:8px;height:8px;border-radius:50%;background:var(--lc);opacity:.45;flex:none;transition:opacity .4s}
-.arch .rl h4 .st{margin-left:auto;font-size:12px;font-weight:400;color:var(--tx3);white-space:nowrap}
-.arch .rl .sub{display:flex;align-items:center;gap:8px 10px;flex-wrap:wrap;margin-top:5px}
-.arch .rl .duty{color:var(--tx2);font-size:12px}
-.arch .rl .clip{position:absolute;inset:0;border-radius:12px;overflow:hidden;pointer-events:none}
-.arch .rl .clip::before{content:"";position:absolute;left:0;top:0;height:2px;width:35%;background:linear-gradient(90deg,transparent,var(--lc),transparent);opacity:0}
-.arch .rl .clip::after{content:"";position:absolute;inset:0;border-radius:12px;box-shadow:inset 0 0 18px color-mix(in srgb,var(--lc) 38%,transparent);opacity:0}
-.arch .rl.on{border-color:var(--lc)}
-.arch .rl.on h4 .dot{opacity:1;animation:arch-pulse 1.2s ease-in-out infinite}
-.arch .rl.on h4 .st{color:var(--lc);font-weight:600}
-.arch .rl.on .clip::before{opacity:1;animation:arch-sweep 2.2s linear infinite}
-.arch .rl.on .clip::after{animation:arch-glow 2s ease-in-out infinite}
-.arch .rl.idle{border-color:color-mix(in srgb,var(--lc) 40%,var(--ln))}
-.arch .rl.off{border-style:dashed}
-.arch .rl .do1{color:#c9d1d9;font-size:12px;margin-top:8px}
-.arch .rl .body{display:grid;grid-template-rows:1fr;transition:grid-template-rows .5s var(--sp),opacity .4s}
-.arch .rl .body>div{overflow:hidden;min-height:0}
-.arch .rl.fold .body{grid-template-rows:0fr;opacity:0}
-.arch .rows{display:grid;gap:10px;margin:12px 0 2px}.arch .rows:empty{display:none}
-.arch .ag{display:grid;grid-template-columns:16px minmax(0,1fr);column-gap:6px;row-gap:3px;border-left:2px solid var(--ch,#30363d);padding:2px 0 2px 8px}
-.arch .ag .ic{grid-row:span 2;font-size:11px;line-height:22px}
-.arch .ag.run .ic{color:var(--lc)}.arch .ag.ok .ic{color:#3fb950}.arch .ag.bad .ic{color:#f85149}.arch .ag.wait .ic{color:#d29922}.arch .ag.idle .ic{color:#6e7681}
-.arch .ag .t{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center;min-width:0}
-.arch .ag .nm2{color:var(--tx);font-weight:600;font-size:13px;line-height:22px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
-.arch .pill{font-size:11px;font-weight:600;color:#0d1117;background:var(--ch,#6e7681);border-radius:10px;padding:0 8px;line-height:18px;white-space:nowrap}
-.arch .ag .do{color:var(--tx2);font-size:12px;line-height:1.5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.arch .ag.run .do{color:#d6dde4}.arch .ag.run .do::after{content:"▍";color:var(--lc);animation:arch-pulse 1s steps(2) infinite}
-.arch .more{color:var(--tx3);font-size:12px}
-.arch .rl .foot{color:var(--tx3);font-size:11.5px;border-top:1px dashed #21262d;margin-top:10px;padding-top:6px;display:flex;justify-content:space-between;gap:8px}
-.arch .rl .foot:empty{display:none}
-.arch .dispatch{max-width:380px;margin:0 auto;text-align:center;padding:9px 16px;border:1px solid var(--ln);border-radius:12px;background:var(--bg);display:grid;gap:2px;transition:border-color .5s,box-shadow .5s}
-.arch .dispatch b{font-size:13.5px;color:var(--tx)}.arch .dispatch span{color:var(--tx2);font-size:12px}
-.arch .dispatch.on{border-color:var(--c-swarm);box-shadow:0 0 22px color-mix(in srgb,var(--c-swarm) 25%,transparent)}
-.arch .narr{display:flex;flex-wrap:wrap;justify-content:center;gap:6px 20px;margin:22px 0 8px;font-size:15px;font-weight:700;color:#4f5761}
-.arch .narr span{transition:color .5s var(--sp),text-shadow .5s}
-.arch .narr span.on{color:var(--lc);text-shadow:0 0 18px color-mix(in srgb,var(--lc) 55%,transparent)}
-.arch .log{margin-top:14px;border-top:1px solid #21262d;padding-top:10px;display:grid;gap:4px;font-size:12.5px}
-.arch .log div{display:grid;grid-template-columns:46px 60px 1fr auto;gap:12px;white-space:nowrap}
+.arch .rl h4{display:flex;gap:8px;align-items:center;font-size:13.5px;font-weight:650;color:var(--lc);line-height:1.4}
+.arch .rl .dot{width:7px;height:7px;border-radius:50%;background:var(--lc);opacity:.35;flex:none;transition:opacity .5s,box-shadow .5s}
+.arch .rl .st{margin-left:auto;font-size:12px;font-weight:400;color:var(--tx3)}
+.arch .rl.on{border-color:color-mix(in srgb,var(--lc) 70%,transparent)}
+.arch .rl.on .dot{opacity:1;box-shadow:0 0 0 3px color-mix(in srgb,var(--lc) 22%,transparent),0 0 10px var(--lc)}
+.arch .rl.on .st{color:var(--lc)}
+.arch .rl.off{border-style:dashed;opacity:.7}
+.arch .grp{display:grid;gap:7px;margin-top:8px}.arch .grp:empty{display:none}
+.arch .gl{display:grid;grid-template-columns:auto auto 1fr auto;gap:8px;align-items:center;min-width:0}
+.arch .src{font-size:11.5px;color:var(--tx2);white-space:nowrap}
+.arch .src::before{content:"";display:inline-block;width:6px;height:6px;border-radius:2px;background:var(--ch);margin-right:6px;vertical-align:1px}
+.arch .gl .n{color:var(--tx3);font-size:11.5px}
+.arch .gl .s{display:flex;align-items:center;gap:5px;font-size:11.5px;color:var(--lc)}
+.arch .gl .ok{color:#3fb950;font-weight:400}.arch .gl .bad{color:#f85149;font-weight:400}
+.arch .gl .doing{grid-column:1/-1;color:var(--tx2);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-left:12px;border-left:1px solid color-mix(in srgb,var(--lc) 45%,transparent)}
+.arch .spin{width:10px;height:10px;border-radius:50%;border:1.5px solid color-mix(in srgb,var(--lc) 30%,transparent);border-top-color:var(--lc);animation:arch-spin .9s linear infinite}
+/* 连线：竖线和分叉都是独立的整块元素，在文档流里首尾相接 */
+.arch .vline{position:relative;height:30px;width:2px;margin:0 auto;background:var(--ln);overflow:visible}
+.arch .vline.dash{background:repeating-linear-gradient(to bottom,var(--ln) 0 4px,transparent 4px 8px)}
+.arch .vline em{position:absolute;left:12px;top:50%;transform:translateY(-50%);font-style:normal;font-size:11.5px;color:var(--tx3);white-space:nowrap;transition:color .5s}
+.arch .vline.live{background:color-mix(in srgb,var(--c-plan) 55%,transparent)}.arch .vline.live em{color:var(--c-plan)}
+.arch .fork{position:relative;height:44px}
+.arch .fork i{position:absolute;background:var(--ln);overflow:hidden;transition:background .5s}
+.arch .fork .a{left:calc(50% - 1px);width:2px;top:0;height:50%}
+.arch .fork .h{top:calc(50% - 1px);height:2px;left:calc((100% - var(--cg)) / 4);right:calc((100% - var(--cg)) / 4)}
+.arch .fork .l,.arch .fork .r{width:2px;top:50%;bottom:0}
+.arch .fork .l{left:calc((100% - var(--cg)) / 4 - 1px)}.arch .fork .r{right:calc((100% - var(--cg)) / 4 - 1px)}
+.arch .join .a{top:50%;bottom:0;height:auto}.arch .join .l,.arch .join .r{top:0;bottom:50%}
+.arch .fork.live .a,.arch .fork.live .h{background:color-mix(in srgb,var(--c-main) 55%,transparent)}
+.arch .fork.lon .l{background:color-mix(in srgb,var(--c-build) 60%,transparent)}.arch .fork.ron .r{background:color-mix(in srgb,var(--c-check) 60%,transparent)}
+.arch .join.live .a,.arch .join.live .h{background:color-mix(in srgb,var(--c-swarm) 50%,transparent)}
+/* 流光：一小段亮光沿线滑动 */
+.arch .vline.live::after,.arch .fork.live .a::after,.arch .fork.lon .l::after,.arch .fork.ron .r::after{content:"";position:absolute;left:0;right:0;height:14px;top:-14px;background:linear-gradient(to bottom,transparent,#fff,transparent);opacity:.9;animation:arch-fy 1.8s cubic-bezier(.4,0,.2,1) infinite}
+.arch .vline.live::after{left:-1px;right:-1px;background:linear-gradient(to bottom,transparent,var(--c-plan),transparent);animation-duration:2.2s}
+.arch .fork.live .h::after{content:"";position:absolute;top:0;bottom:0;width:40px;left:50%;background:linear-gradient(to right,transparent,#fff,transparent);opacity:.8;animation:arch-fx 1.8s cubic-bezier(.4,0,.2,1) infinite}
+.arch .back{max-width:340px;margin:0 auto;display:flex;justify-content:center;gap:12px;align-items:baseline;padding:8px 16px;border:1px solid var(--ln);border-radius:11px;transition:border-color .6s,box-shadow .6s}
+.arch .back b{font-size:13px;color:var(--tx);font-weight:600}.arch .back span{color:var(--tx3);font-size:11.5px}
+.arch .back.on{border-color:color-mix(in srgb,var(--c-swarm) 70%,transparent);box-shadow:0 0 22px color-mix(in srgb,var(--c-swarm) 22%,transparent)}
+/* 最近动态 */
+.arch .log{margin-top:20px;border-top:1px solid #1c2128;padding-top:10px;display:grid;gap:4px;font-size:12px}.arch .log:empty{display:none}
+.arch .log div{display:grid;grid-template-columns:44px 104px 1fr auto;gap:12px;white-space:nowrap;color:var(--tx3)}
 .arch .log div>*{overflow:hidden;text-overflow:ellipsis}
-.arch .log .t{color:var(--tx3)}.arch .log .w{color:var(--c-main)}.arch .log .m{color:#c9d1d9}.arch .log .s{color:var(--tx3)}
-.arch .log .s.ok{color:#3fb950}.arch .log .s.bad{color:#f85149}.arch .log .s.run{color:var(--c-main)}
-.arch .prompt{margin-top:12px;border:1px solid #21262d;border-radius:9px;padding:7px 12px;color:var(--tx3);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.arch .prompt b{color:#d6dde4;font-weight:500}
-.arch .afoot{display:flex;justify-content:flex-end;gap:18px;margin-top:8px;font-size:11.5px}
-@keyframes arch-sweep{from{transform:translateX(-100%)}to{transform:translateX(290%)}}
-@keyframes arch-glow{0%,100%{opacity:.15}50%{opacity:.85}}
-@keyframes arch-pulse{50%{opacity:.3}}
-@keyframes arch-flow{from{transform:translateY(0);opacity:1}to{transform:translateY(24px);opacity:.1}}
+.arch .log .m{color:#c9d1d9}.arch .log .ok .s{color:#3fb950}.arch .log .bad .s{color:#f85149}.arch .log .run .s{color:var(--c-main)}
+@keyframes arch-breathe{0%,100%{opacity:.35}50%{opacity:1}}
+@keyframes arch-spin{to{transform:rotate(360deg)}}
+@keyframes arch-fy{0%{transform:translateY(0)}100%{transform:translateY(calc(100% + 60px))}}
+@keyframes arch-fx{0%{transform:translateX(-50%) scaleX(.2);opacity:0}30%{opacity:.9}100%{transform:translateX(-50%) scaleX(1);opacity:0}}
 @media (prefers-reduced-motion:reduce){.arch *,.arch *::before,.arch *::after{animation:none!important;transition:none!important}}
-@media (max-width:860px){.arch{padding:18px 14px 14px;--gap:22px}.arch .cps{grid-template-columns:1fr}.arch .wake{flex-direction:row;justify-content:space-between}.arch .sm-wrap.two{grid-template-columns:1fr}
-  .arch .bigrow{grid-template-columns:1fr;gap:var(--gap);padding:0}.arch .bigrow::before,.arch .bigrow::after,.arch .big>.up,.arch .big>.dn{display:none}
-  .arch .bigrow .big+.big::before{content:"";position:absolute;left:50%;top:calc(-1 * var(--gap) - 1px);height:var(--gap);border-left:2px solid var(--ln)}
-  .arch .log div{grid-template-columns:46px 1fr auto}.arch .log .w{display:none}.arch .pr{grid-template-columns:92px 1fr 46px}.arch .pt span:last-child{display:none}}
+@media (max-width:860px){.arch{padding:18px 14px 14px}.arch .two{grid-template-columns:1fr}.arch .cols{grid-template-columns:1fr;gap:28px}
+  .arch .cols .big+.big::after{content:"";position:absolute;left:calc(50% - 1px);top:-29px;height:28px;width:2px;background:var(--ln)}
+  .arch .fork .h,.arch .fork .l,.arch .fork .r{display:none}.arch .fork{height:28px}.arch .fork .a{height:100%}.arch .join .a{top:0}
+  .arch .log div{grid-template-columns:44px 1fr auto}.arch .log .src{display:none}.arch .pr{grid-template-columns:86px 1fr 42px}}
 </style>
 </head>
 <body>
@@ -339,7 +310,7 @@ footer{margin:clamp(48px,8vw,80px) 0 40px;font-size:12px;color:var(--text-3);lin
 
   <section class="block" id="arch-block">
     <div class="block-head">
-      <div><h2>架构实时图</h2><p class="sub">主 agent 怎么派活、谁在干、干到哪了；每 15 秒随数据刷新，没有任务时动画自动停止</p></div>
+      <div><h2>架构实时图</h2><p class="sub">谁在干、用什么模型</p></div>
     </div>
     <div class="arch" id="arch"></div>
   </section>
@@ -777,25 +748,27 @@ const _firstLine = t => String(t || '').split('\n').map(x => x.trim()).find(Bool
 const shortModel = m => String(m || '').replace(/^claude-/, '').replace(/-\d{8}$/, '');
 const sec = () => Date.now() / 1000;
 const ROLES = {
-  ana:    { name: '分析',     duty: '拆任务、定方向', col: '--c-main' },
-  asg:    { name: '分配',     duty: '把活派给子 agent', col: '--c-main', ctl: 1 },
-  build:  { name: '写代码',   duty: '动手写、改文件', col: '--c-build', verb: '动手' },
-  duty:   { name: '勤务',     duty: '搜索、整理、汇总', col: '--c-swarm', verb: '跑腿' },
-  check:  { name: '检查代码', duty: '挑错、找隐患',   col: '--c-check', verb: '挑错' },
-  verify: { name: '做校验',   duty: '跑测试、对验收', col: '--c-verify', verb: '验收' },
+  ana:    { name: '分析',     col: '--c-main' },
+  asg:    { name: '分配',     col: '--c-main' },
+  build:  { name: '写代码',   col: '--c-build' },
+  duty:   { name: '勤务',     col: '--c-swarm' },
+  check:  { name: '检查代码', col: '--c-check' },
+  verify: { name: '做校验',   col: '--c-verify' },
 };
 const WORK = ['build', 'duty', 'check', 'verify'];
-/* 子 agent 的角色按名字、任务、子 agent 类型猜，猜不出来按来源给默认值（Codex 写代码、DSH 勤务）——是推断，不是 agent 自报的。
+/* 子 agent 的角色：先看名字（写手、reviewer…），名字看不出再看任务，都看不出就算写代码——是推断，不是 agent 自报的。
    主 agent 和顾问不靠猜：是你用 --arch-role 指定的两个 Claude 会话 */
+const ROLE_RX = [
+  ['build', /写手|写代码|码农|coder|writer|implement|impl\b|dev\b|developer|builder/i],
+  ['verify', /verif|test|valid|qa\b|验收|测试|核对|校验|验证/i],
+  ['check', /review|check|audit|critic|lint|审查|审核|检查|挑错/i],
+  ['ana', /\bplan|planner|architect|analy|规划|方案|设计|架构|分析/i],
+  ['duty', /explore|search|grep|scan|summar|docs?\b|探查|搜索|查找|整理|汇总|梳理|扫描|勤务|跑腿/i],
+  ['build', /refactor|build|fix|write|code|实现|重构|修改|编写|开发|修复|构建/i],
+];
 function roleOf(x) {
-  const t = `${x.tag} ${x.name} ${x.task}`.toLowerCase();
-  if (/verif|test|valid|qa\b|验收|测试|核对|校验|验证|跑一遍/.test(t)) return 'verify';
-  if (/review|check|audit|critic|lint|审|检查|挑错|找问题/.test(t)) return 'check';
-  if (/\bplan|architect|design|analy|规划|方案|设计|架构|分析/.test(t)) return 'ana';
-  if (/explore|search|grep|map|scan|summar|docs?\b|探查|搜索|查找|整理|汇总|梳理|扫描/.test(t)) return 'duty';
-  if (/implement|refactor|build|fix|write|code|实现|重构|修改|编写|开发|修复|构建/.test(t)) return 'build';
-  if (x.lane === 'claude-sub') return /haiku/.test(x.model || '') ? 'duty' : 'build';
-  return x.lane === 'dsh' ? 'duty' : 'build';
+  for (const src of [`${x.name} ${x.tag}`, x.task || '']) for (const [k, rx] of ROLE_RX) if (rx.test(src)) return k;
+  return /haiku/i.test(x.model || '') ? 'duty' : 'build';
 }
 const prettyModel = m => {
   const s = shortModel(String(m || '').split('/').pop());
@@ -804,138 +777,115 @@ const prettyModel = m => {
   if (c) return c[1][0].toUpperCase() + c[1].slice(1).toLowerCase() + ' ' + c[2] + (c[3] ? '.' + c[3] : '');
   return s.replace(/^gpt-/i, 'GPT-').replace(/^deepseek-/i, 'DeepSeek ').replace(/-(sol|terra|astra)$/i, (_, x) => ' ' + x[0].toUpperCase() + x.slice(1));
 };
-const famCol = m => /fable|mythos/i.test(m) ? '--c-plan' : /opus/i.test(m) ? '--c-check' : /sonnet/i.test(m) ? '--c-build' : /haiku/i.test(m) ? '--c-swarm' : /gpt|codex|openai/i.test(m) ? '--c-gpt' : /deepseek/i.test(m) ? '--c-verify' : '';
-const chip = (m, e) => m || e ? `<span class="chip" style="--mc:var(${famCol(m) || '--tx3'})">${esc(prettyModel(m) || '模型未知')}${e ? `<em>${esc(e)}</em>` : ''}</span>` : '';
+const famCol = m => /fable|mythos/i.test(m) ? '--c-plan' : /opus/i.test(m) ? '--c-check' : /sonnet/i.test(m) ? '--c-build' : /haiku/i.test(m) ? '--c-swarm' : /gpt|codex|openai/i.test(m) ? '--c-gpt' : /deepseek/i.test(m) ? '--c-verify' : '--tx3';
+const chip = (m, e) => m || e ? `<span class="chip" style="--mc:var(${famCol(m)})">${esc(prettyModel(m) || '?')}${e ? `<em>${esc(e)}</em>` : ''}</span>` : '';
 const CHANNELS = {
-  cd: { name: 'Claude 桌面端子 agent', short: 'Claude 桌面端', col: '#e0875c' },
-  dc: { name: 'DSH · Claude API', short: 'DSH · Claude API', col: '#f2b896' },
-  cx: { name: 'Codex 桌面端', short: 'Codex 桌面端', col: '#19c3a0' },
-  do: { name: 'Codex API（OpenAI，经 DSH）', short: 'Codex API · DSH', col: '#8ee8d2' },
-  ca: { name: 'Codex API（预留）', short: 'Codex API', col: '#5fd8ff' },
-  dd: { name: 'DSH · DeepSeek', short: 'DSH · DeepSeek', col: '#e3b341' },
+  cd: { short: 'Claude 子agent', col: '#e0875c' },
+  dc: { short: 'DSH · Claude', col: '#f2b896' },
+  cx: { short: 'Codex', col: '#19c3a0' },
+  do: { short: 'DSH · OpenAI', col: '#8ee8d2' },
+  ca: { short: 'Codex API', col: '#5fd8ff' },
+  dd: { short: 'DSH · DeepSeek', col: '#e3b341' },
 };
 const chanOf = x => x.lane === 'claude-sub' ? 'cd' : x.lane === 'codex' ? (x.route === 'api' ? 'ca' : 'cx') : x.lane === 'dsh' ? (x.vendor === 'anthropic' ? 'dc' : /^(openai|codex|azure)/.test(x.vendor || '') ? 'do' : 'dd') : 'cx';
 let archBuilt = false; const archCache = {}; const cpSeen = new Set();
 const archSet = (id, html) => { if (archCache[id] !== html) { archCache[id] = html; $('#' + id).innerHTML = html; } };
+const tog = (id, cls, on) => $('#' + id).classList.toggle(cls, !!on);
 function archBuild() {
-  const small = k => `<div class="rl sm r-${k} off${ROLES[k].ctl ? ' ctl' : ''}" id="ar-${k}"><span class="clip"></span>
-      <h4><span class="dot"></span><span class="nm">${ROLES[k].name}</span><span class="st" id="ar-${k}-st"></span></h4>
-      <div class="sub"><span class="duty">${ROLES[k].duty}</span><span class="chips" id="ar-${k}-md"></span></div>
-      ${ROLES[k].ctl ? `<div class="do1" id="ar-${k}-do"></div>` : `<div class="body"><div><div class="rows" id="ar-${k}-rows"></div><div class="foot" id="ar-${k}-foot"></div></div></div>`}</div>`;
-  const big = (id, cls, inner, extra = '') => `<div class="big ${cls}" id="ar-g-${id}">${extra}<div class="bh"><span class="bt" id="ar-g-${id}-t"></span><span class="chips" id="ar-g-${id}-md"></span><span class="st" id="ar-g-${id}-st"></span></div><div class="bs" id="ar-g-${id}-s"></div>${inner}</div>`;
-  $('#arch').innerHTML = `<div class="ps" id="ar-ps"></div><div class="legend" id="ar-legend"></div><div class="price" id="ar-price"></div>
+  const small = k => `<div class="rl r-${k} off" id="ar-${k}"><h4><i class="dot"></i>${ROLES[k].name}<span class="st" id="ar-${k}-st"></span></h4><div class="grp" id="ar-${k}-g"></div></div>`;
+  const big = (id, cls, inner) => `<div class="big ${cls}" id="ar-g-${id}"><div class="bh"><span class="bt" id="ar-g-${id}-t"></span><span class="mdw" id="ar-g-${id}-md"></span><span class="st" id="ar-g-${id}-st"></span></div>${inner}</div>`;
+  $('#arch').innerHTML = `<div class="ps" id="ar-ps"></div><div class="price" id="ar-price"></div>
     ${big('adv', 'g-adv', '<div class="cps" id="ar-cps"></div>')}
-    <div class="cline" id="ar-consult"><em>咨询</em></div>
-    ${big('main', 'g-main', `<div class="sm-wrap two">${small('ana')}${small('asg')}</div>`)}
-    <div class="wire" id="ar-w1"></div>
-    <div class="bigrow">
-      ${big('exec', 'g-exec', `<div class="sm-wrap">${small('build')}${small('duty')}</div>`, '<i class="up"></i><i class="dn"></i>')}
-      ${big('gate', 'g-gate', `<div class="sm-wrap">${small('check')}${small('verify')}</div>`, '<i class="up"></i><i class="dn"></i>')}
+    <div class="vline dash" id="ar-consult"><em>咨询</em></div>
+    ${big('main', 'g-main', `<div class="two">${small('ana')}${small('asg')}</div>`)}
+    <div class="fork" id="ar-fork"><i class="a"></i><i class="h"></i><i class="l"></i><i class="r"></i></div>
+    <div class="cols">
+      ${big('exec', 'g-exec', `<div class="stack">${small('build')}${small('duty')}</div>`)}
+      ${big('gate', 'g-gate', `<div class="stack">${small('check')}${small('verify')}</div>`)}
     </div>
-    <div class="wire back" id="ar-w2"></div>
-    <div class="dispatch" id="ar-back"><b>回到主 agent · 验证 · 交付</b><span id="ar-back-d"></span></div>
-    <div class="narr" id="ar-narr"></div><div class="log" id="ar-log"></div><div class="prompt" id="ar-prompt"></div><div class="afoot" id="ar-foot"></div>`;
+    <div class="fork join" id="ar-join"><i class="a"></i><i class="h"></i><i class="l"></i><i class="r"></i></div>
+    <div class="back" id="ar-back"><b>回到主 agent 验收</b><span id="ar-back-d"></span></div>
+    <div class="log" id="ar-log"></div>`;
   archSet('ar-g-exec-t', '执行组'); archSet('ar-g-gate-t', '把关组');
   archBuilt = true;
 }
-$('#arch').addEventListener('click', e => { const r = e.target.closest('.rl.sm:not(.ctl)'); if (r && !e.target.closest('.ag')) r.classList.toggle('fold'); });
 function renderArch(d) {
   if (!archBuilt) archBuild();
   const calls = (d.calls || []).filter(c => !c.probe);
   const agents = d.delegation?.agents || [], csub = d.claude_agents || [];
   const R = d.arch_roles || {}, M = R.main || {}, A = R.advisor || {};
-  const isRunA = a => a.running > 0 || ['running', 'waiting'].includes(a.last_state);
   const lastCall = {};
   for (const c of calls) { const k = `${c.provider}|${c.name || c.agent_id}`; if (!lastCall[k] || (c.created_at || 0) >= (lastCall[k].created_at || 0)) lastCall[k] = c; }
   const norm = [];
   for (const a of agents) {
-    const c = lastCall[a.key] || {}, run = isRunA(a);
-    const st = run ? (a.last_state === 'waiting' ? 'wait' : 'run') : a.last_state === 'completed' ? 'ok' : ['failed', 'lost', 'cancelled', 'unknown'].includes(a.last_state) ? 'bad' : 'idle';
+    const c = lastCall[a.key] || {}, run = a.running > 0 || ['running', 'waiting'].includes(a.last_state);
     const raw = String(a.model || ''), vendor = raw.includes('/') ? raw.split('/')[0] : (a.provider === 'dsh' ? 'deepseek' : '');
-    const model = raw.includes('/') ? raw.split('/').slice(1).join('/') : raw;
-    const x = { lane: a.provider, vendor, route: a.route, name: a.name || String(a.agent_id).slice(0, 8), task: _firstLine(a.last_task), model, effort: a.effort, st, last: a.last_at || 0, run: run ? 1 : 0, tokens: a.tokens || 0,
-      tag: a.provider === 'dsh' ? `${vendor} · ${ROUTE[a.route] || 'API'}` : a.provider === 'codex' ? 'Codex' : (PNAME[a.provider] || a.provider),
-      doing: run ? (c.activity?.text || '处理：' + _firstLine(a.last_task)) : (st === 'ok' ? '已完成：' : st === 'bad' ? '失败：' : '') + _firstLine(a.last_task) };
+    const x = { lane: a.provider, vendor, route: a.route, name: a.name || '', task: _firstLine(a.last_task), model: raw.includes('/') ? raw.split('/').slice(1).join('/') : raw, effort: a.effort,
+      bad: ['failed', 'lost', 'cancelled'].includes(a.last_state), wait: a.last_state === 'waiting', last: a.last_at || 0, run: run ? 1 : 0, tokens: a.tokens || 0, tag: '',
+      doing: run ? (c.activity?.text || _firstLine(a.last_task)) : '' };
     x.role = roleOf(x); norm.push(x);
   }
   for (const a of csub) {
     const run = a.state === 'running';
-    const x = { lane: 'claude-sub', name: a.name, task: a.task, model: a.model, effort: a.effort, st: run ? 'run' : 'ok', last: a.last_at || 0, run: run ? 1 : 0, tokens: a.tokens || 0,
-      tag: a.role, doing: run ? (a.activity?.text || '处理：' + a.task) : '已完成：' + a.task };
+    const x = { lane: 'claude-sub', name: a.name || '', task: a.task, model: a.model, effort: a.effort, last: a.last_at || 0, run: run ? 1 : 0, tokens: a.tokens || 0, tag: a.role || '',
+      doing: run ? (a.activity?.text || a.task) : '' };
     x.role = roleOf(x); norm.push(x);
   }
-  const work = norm.filter(x => WORK.includes(x.role));
-  const running = work.filter(x => x.run).length, waiting = norm.filter(x => x.st === 'wait').length;
+  const running = norm.filter(x => x.run && WORK.includes(x.role)).length, waiting = norm.filter(x => x.wait).length;
   const doneAt = Math.max(0, ...calls.filter(c => c.finished_at).map(c => c.finished_at), ...csub.filter(a => a.state !== 'running').map(a => a.last_at || 0));
   const justDone = !running && doneAt && sec() - doneAt < 600;
-  const ic = { run: '●', ok: '✓', bad: '✗', wait: '◐', idle: '○' };
   const act = {};
+  /* 每个角色：同一来源、同一模型、同一思考强度的 agent 合成一行，不写名字 */
   for (const k of ['ana', ...WORK]) {
-    const list = norm.filter(x => x.role === k).sort((x, y) => (y.run - x.run) || (y.last - x.last));
-    const on = list.filter(x => x.run).length, el = $('#ar-' + k);
+    const list = norm.filter(x => x.role === k);
+    const on = list.filter(x => x.run).length;
     act[k] = on;
-    if (k !== 'ana') { el.classList.toggle('on', on > 0); el.classList.toggle('idle', !on && list.length > 0); el.classList.toggle('off', !list.length); archSet(`ar-${k}-st`, on ? `工作中 ${on}` : list.length ? '待命' : '未派到'); }
-    const ms = {}; for (const x of list) { const key = (x.model || '') + '|' + (x.effort || ''); if (x.model && !ms[key]) ms[key] = x; }
-    const mv = Object.values(ms);
-    archSet(`ar-${k}-md`, mv.slice(0, 2).map(x => chip(x.model, x.effort)).join('') + (mv.length > 2 ? `<span class="more">+${mv.length - 2}</span>` : ''));
-    const shown = list.slice(0, on ? 5 : 2);
-    archSet(`ar-${k}-rows`, shown.map(x => { const ch = CHANNELS[chanOf(x)]; return `<div class="ag ${x.st}" style="--ch:${ch.col}"><span class="ic">${ic[x.st]}</span><div class="t"><span class="nm2">${esc(x.name)}</span><span class="pill">${esc(ch.short)}</span>${chip(x.model, x.effort)}</div><div class="do" title="${esc(x.doing)}">${esc(x.doing)}</div></div>`; }).join('')
-      + (list.length > shown.length ? `<div class="more">还有 ${list.length - shown.length} 个</div>` : ''));
-    const fin = list.filter(x => !x.run).length;
-    archSet(`ar-${k}-foot`, list.length ? `<span>${fin}/${list.length} 收工</span><span>${tokens(list.reduce((n, x) => n + x.tokens, 0))} token</span>` : '');
+    const groups = {};
+    for (const x of list) { const key = chanOf(x) + '|' + (x.model || '') + '|' + (x.effort || ''); (groups[key] = groups[key] || { ch: CHANNELS[chanOf(x)], model: x.model, effort: x.effort, n: 0, run: 0, bad: 0, last: 0, doing: '' }); const g = groups[key]; g.n++; g.run += x.run; g.bad += x.bad ? 1 : 0; if (x.run && x.last >= g.last) { g.last = x.last; g.doing = x.doing; } }
+    const gs = Object.values(groups).sort((a, b) => b.run - a.run || b.n - a.n).slice(0, 4);
+    archSet(`ar-${k}-g`, gs.map(g => `<div class="gl ${g.run ? 'run' : ''}"><span class="src" style="--ch:${g.ch.col}">${g.ch.short}</span>${chip(g.model, g.effort)}<span class="n">${g.n > 1 ? '×' + g.n : ''}</span><span class="s">${g.run ? `<i class="spin"></i>${g.run > 1 || g.n > 1 ? g.run : ''}` : g.bad ? '<b class="bad">失败</b>' : '<b class="ok">✓</b>'}</span>${g.run && g.doing ? `<div class="doing">${esc(g.doing)}</div>` : ''}</div>`).join(''));
+    if (k !== 'ana') {
+      tog('ar-' + k, 'on', on); tog('ar-' + k, 'off', !list.length);
+      archSet(`ar-${k}-st`, on ? `${on} 个在干` : list.length ? '空闲' : '—');
+    }
   }
-  /* 主 agent / 顾问：你指定的两个 Claude 会话 */
-  const sessState = (S, onTxt) => !S.name ? '未设置' : !S.found ? '没找到这个会话' : S.active ? onTxt : '待命' + (S.last_at ? ' · ' + clock(S.last_at) : '');
-  archSet('ar-g-adv-t', `顾问 · ${esc(A.name || '未设置')}`); archSet('ar-g-adv-md', chip(A.model, A.effort)); archSet('ar-g-adv-st', sessState(A, '被咨询中'));
-  archSet('ar-g-main-t', `主 agent · ${esc(M.name || '未设置')}`); archSet('ar-g-main-md', chip(M.model, M.effort)); archSet('ar-g-main-st', sessState(M, '工作中'));
-  archSet('ar-g-adv-s', A.name ? '只想不写，关键时刻被主 agent 叫醒' : '运行 --arch-role advisor 会话名 模型 思考强度 指定');
-  archSet('ar-g-main-s', M.name ? '理解需求、拆任务，再把活派出去' : '运行 --arch-role main 会话名 模型 思考强度 指定');
+  const sessState = (S, onTxt) => !S.name ? '未设置' : !S.found ? '没找到会话' : S.active ? onTxt : '空闲';
+  archSet('ar-g-adv-t', `顾问 <small>${esc(A.name || '')}</small>`); archSet('ar-g-adv-md', chip(A.model, A.effort)); archSet('ar-g-adv-st', sessState(A, '被咨询中'));
+  archSet('ar-g-main-t', `主 agent <small>${esc(M.name || '')}</small>`); archSet('ar-g-main-md', chip(M.model, M.effort)); archSet('ar-g-main-st', sessState(M, '工作中'));
   const advOn = !!A.active, mainOn = !!M.active || running > 0;
-  $('#ar-g-adv').classList.toggle('on', advOn); $('#ar-g-main').classList.toggle('on', mainOn);
-  $('#ar-g-adv').classList.toggle('miss', !!A.name && !A.found); $('#ar-g-main').classList.toggle('miss', !!M.name && !M.found);
+  tog('ar-g-adv', 'on', advOn); tog('ar-g-main', 'on', mainOn);
+  tog('ar-g-adv', 'miss', A.name && !A.found); tog('ar-g-main', 'miss', M.name && !M.found);
   const anaOn = (!!M.active && !running) || act.ana > 0, asgOn = running > 0;
-  const ana = $('#ar-ana'); ana.classList.toggle('on', anaOn); ana.classList.toggle('idle', !anaOn); ana.classList.remove('off');
-  archSet('ar-ana-st', anaOn ? '工作中' : '待命');
-  const asg = $('#ar-asg'); asg.classList.toggle('on', asgOn); asg.classList.toggle('idle', !asgOn); asg.classList.remove('off');
-  archSet('ar-asg-st', asgOn ? '工作中' : '待命');
-  archSet('ar-asg-do', asgOn ? '正在跑：' + WORK.filter(k => act[k]).map(k => ROLES[k].name + ' ' + act[k]).join(' · ') : waiting ? `${waiting} 个在等你批准` : '没有在派活');
-  /* 顾问的三个检查点：顾问会话在活动时，按子 agent 的状态判断是哪一个（推断） */
+  tog('ar-ana', 'on', anaOn); tog('ar-ana', 'off', false); archSet('ar-ana-st', anaOn ? '进行中' : '空闲');
+  tog('ar-asg', 'on', asgOn); tog('ar-asg', 'off', false);
+  archSet('ar-asg-st', asgOn ? `派出 ${running} 个` : waiting ? `${waiting} 个待批准` : '空闲');
+  archSet('ar-asg-g', '');
+  /* 顾问的三个检查点（推断）：顾问会话在活动时，按子 agent 的状态判断是哪一个 */
   const failedTwice = agents.some(a => (a.failed_total || a.failed || 0) >= 2 || (a.failed || 0) >= 1 && a.rounds >= 2);
   const cp2 = advOn && failedTwice, cp3 = advOn && !running && justDone && !cp2, cp1 = advOn && !running && !justDone && !cp2;
   if (!advOn && !running && !justDone) cpSeen.clear();
   [cp1, cp2, cp3].forEach((v, i) => v && cpSeen.add(i));
-  const cps = [['派活之前', '方案对吗？', cp1], ['同一错误出现两次', '真原因，还是在打转？', cp2], ['宣布完成之前', '真的做完了吗？', cp3]];
-  archSet('ar-cps', cps.map(([t, q, on], i) => `<div class="cp ${on ? 'on' : cpSeen.has(i) ? 'dn' : ''}"><b>${on ? '▸ ' : cpSeen.has(i) ? '✓ ' : ''}${t}</b><span>${q}</span></div>`).join('')
-    + `<div class="wake"><span>本轮被唤醒</span><b>${cpSeen.size} / 3</b></div>`);
-  /* 连线和分工框 */
+  archSet('ar-cps', [['派活前', cp1], ['同一错误两次', cp2], ['完成前', cp3]].map(([t, on], i) => `<span class="cp ${on ? 'on' : cpSeen.has(i) ? 'dn' : ''}">${cpSeen.has(i) && !on ? '✓ ' : ''}${t}</span>`).join('') + `<span class="wake">${cpSeen.size}/3</span>`);
+  /* 分工框与连线 */
   for (const [g, ks] of [['exec', ['build', 'duty']], ['gate', ['check', 'verify']]]) {
-    const n = ks.reduce((s, k) => s + act[k], 0), has = norm.some(x => ks.includes(x.role));
-    $('#ar-g-' + g).classList.toggle('on', n > 0);
-    archSet(`ar-g-${g}-st`, n ? `工作中 ${n}` : has ? '待命' : '未派到');
-    archSet(`ar-g-${g}-s`, g === 'exec' ? '真正动手干活' : '干完之后挑错、验收');
+    const n = ks.reduce((s, k) => s + act[k], 0);
+    tog('ar-g-' + g, 'on', n > 0);
+    archSet(`ar-g-${g}-st`, n ? `${n} 个在干` : norm.some(x => ks.includes(x.role)) ? '空闲' : '—');
   }
-  $('#ar-consult').classList.toggle('live', advOn);
-  $('#ar-w1').classList.toggle('live', running > 0); $('#ar-w2').classList.toggle('live', running > 0);
-  $('.arch .bigrow').classList.toggle('live', running > 0);
-  $('#ar-back').classList.toggle('on', !!justDone);
-  archSet('ar-back-d', doneAt ? '最近一次回报 ' + clock(doneAt) : '还没有回报');
-  /* 顶部：agent 树 + 单价 */
-  const treeRow = (col, name, model, effort, extra) => `<span><i class="d" style="background:var(${col})"></i><b>${name}</b>${chip(model, effort) || '<span class="mute">—</span>'}${extra || ''}</span>`;
-  archSet('ar-legend', treeRow('--c-plan', '顾问', A.model, A.effort) + treeRow('--c-main', '主 agent', M.model, M.effort)
-    + WORK.map(k => { const l = norm.filter(x => x.role === k); const top = l.sort((x, y) => y.last - x.last)[0]; return treeRow(ROLES[k].col, ROLES[k].name, top?.model, top?.effort, l.length ? `<span class="mute">×${l.length}</span>` : ''); }).join(''));
+  const eOn = act.build + act.duty > 0, gOn = act.check + act.verify > 0;
+  tog('ar-consult', 'live', advOn);
+  for (const f of ['ar-fork', 'ar-join']) { tog(f, 'live', running > 0); tog(f, 'lon', eOn); tog(f, 'ron', gOn); }
+  tog('ar-back', 'on', justDone);
+  archSet('ar-back-d', doneAt ? clock(doneAt) : '');
+  /* 顶部：一行状态 + 单价 */
+  archSet('ar-ps', `PS&gt; <b>autoswarm</b> <i>watch</i>　在干 <b>${running}</b>${waiting ? ` · 待批准 <b>${waiting}</b>` : ''}`);
   const mp = (d.model_prices || []).slice(0, 6), mx = Math.max(1, ...mp.map(r => r.output));
   const money = v => '$' + (v >= 10 ? Math.round(v) : v >= 1 ? +v.toFixed(1) : +v.toFixed(2));
-  archSet('ar-price', mp.length > 1 ? `<div class="pt"><span>输出单价 · 每百万 token</span><span>顾问只在被叫醒时按它的价计费</span></div>` + mp.map(r => `<div class="pr"><span class="pn">${esc(prettyModel(r.model))}</span><span class="pb"><i style="width:${Math.max(1.5, r.output / mx * 100)}%;background:var(${famCol(r.model) || '--tx3'})"></i></span><span class="pv">${money(r.output)}</span></div>`).join('') : '');
-  archSet('ar-ps', `PS&gt; <b>autoswarm</b> <i>watch</i>  运行 <b>${running}</b> · 待批准 <b>${waiting}</b> · 子 agent <b>${norm.length}</b> · ${tokens(norm.reduce((n, x) => n + x.tokens, 0))} token`);
-  const nar = [['--c-plan', '顾问指导', advOn], ['--c-main', '主 agent 分析', anaOn], ...WORK.map(k => [ROLES[k].col, ROLES[k].name + ROLES[k].verb, act[k] > 0])];
-  archSet('ar-narr', nar.map(([c, t, on]) => `<span class="${on ? 'on' : ''}" style="--lc:var(${c})">${t}</span>`).join(''));
-  const events = [...calls.map(c => ({ t: c.finished_at || c.created_at, m: (c.name ? c.name + ' · ' : '') + _firstLine(c.prompt), st: c.state === 'completed' ? 'ok' : ['running', 'waiting'].includes(c.state) ? 'run' : 'bad', lab: c.state === 'completed' ? '完成' : c.state === 'waiting' ? '待批准' : c.state === 'running' ? '进行中' : '异常', w: PNAME[c.provider] || c.provider })),
-    ...csub.map(a => ({ t: a.last_at, m: a.role + ' · ' + a.name, st: a.state === 'running' ? 'run' : 'ok', lab: a.state === 'running' ? '进行中' : '完成', w: 'Claude' }))]
-    .filter(e => e.t).sort((x, y) => y.t - x.t).slice(0, 6);
-  archSet('ar-log', events.map(e => `<div><span class="t">${clock(e.t)}</span><span class="w">${esc(e.w)}</span><span class="m">${esc(e.m)}</span><span class="s ${e.st}">${e.lab}</span></div>`).join(''));
-  const newest = norm.filter(x => x.run).sort((x, y) => y.last - x.last)[0];
-  archSet('ar-prompt', '&gt; ' + (newest ? `<b>${esc(newest.name)}</b> ${esc(newest.doing)}` : '没有正在运行的子 agent'));
-  archSet('ar-foot', `<span style="color:var(--c-plan)">顾问 ${esc(prettyModel(A.model) || '—')}${A.effort ? ' · ' + esc(A.effort) : ''}</span><span style="color:var(--c-main)">主 ${esc(prettyModel(M.model) || '—')}${M.effort ? ' · ' + esc(M.effort) : ''}</span>`);
+  archSet('ar-price', mp.length > 1 ? mp.map(r => `<div class="pr"><span class="pn">${esc(prettyModel(r.model))}</span><span class="pb"><i style="width:${Math.max(1.5, r.output / mx * 100)}%;background:var(${famCol(r.model)})"></i></span><span class="pv">${money(r.output)}</span></div>`).join('') + '<div class="pt">每百万输出 token</div>' : '');
+  const events = [...calls.map(c => ({ t: c.finished_at || c.created_at, ch: CHANNELS[c.provider === 'codex' ? 'cx' : c.provider === 'dsh' ? 'dd' : 'cx'], m: _firstLine(c.prompt), st: c.state === 'completed' ? 'ok' : ['running', 'waiting'].includes(c.state) ? 'run' : 'bad' })),
+    ...csub.map(a => ({ t: a.last_at, ch: CHANNELS.cd, m: a.task || a.name, st: a.state === 'running' ? 'run' : 'ok' }))]
+    .filter(e => e.t).sort((x, y) => y.t - x.t).slice(0, 4);
+  archSet('ar-log', events.map(e => `<div class="${e.st}"><span class="t">${clock(e.t)}</span><span class="src" style="--ch:${e.ch.col}">${e.ch.short}</span><span class="m">${esc(e.m)}</span><span class="s">${e.st === 'ok' ? '完成' : e.st === 'run' ? '进行中' : '异常'}</span></div>`).join(''));
 }
 function render() {
   const d = state.data;
