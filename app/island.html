@@ -318,6 +318,14 @@ function dshRingTile(p, ds, r) {
     <div class="line num" style="line-height:1.35">剩余${strong((pct ?? '—') + '%')}</div><div class="line num" style="line-height:1.35">已用${strong(money(r.used, r.currency))}</div>
     ${r.used_source === 'total' ? '' : `<div class="qnote num" style="margin:0">自${new Date(r.since * 1000).getMonth() + 1}/${new Date(r.since * 1000).getDate()}起 · 点此填总额</div>`}</div></div>`;
 }
+const estBal = (p, ds) => p.id !== 'deepseek' && p.remaining != null && p.remaining_pct != null ? p : null;
+function estRingTile(p) {
+  const pct = p.remaining_pct;
+  const hint = `${p.name}：按 DSH 记录的 token × ${p.price_source === 'default' ? '公开标价' : '你填的单价'}估算花费；总额是你填的，剩余 = 总额 − 估算花费，不是官方账单`;
+  return `<div class="tile dsh-tile" style="cursor:pointer" title="${esc(hint)}">${creditRing(pct, 46, (p.name || '?')[0].toUpperCase())}<div><div class="tile-k">${esc(p.name)}</div>
+    <div class="money num" style="color:${tone(pct)}">≈${money(p.remaining, p.currency)}</div>
+    <div class="line num" style="line-height:1.35">剩余${strong(pct + '%')}</div><div class="line num" style="line-height:1.35">已用${strong('≈' + money(p.cost_all, p.currency))}</div></div></div>`;
+}
 function dshChip(p, ds) {
   const used = p.cost_all != null;
   const amount = used ? `<strong>≈${money(p.cost_all, p.currency)}</strong><em>已用</em>` : `<strong>${tok(p.tokens.all ? p.tokens.month : 0)}</strong><em>token</em>`;
@@ -329,6 +337,8 @@ function dshChip(p, ds) {
 function dshMini(p, ds) {
   const r = dshBal(p, ds);
   if (r) return `<span class="vm" title="${esc(p.name)}">${creditRing(r.remaining_pct, 22, 'D')}<span style="color:${tone(r.remaining_pct)}">${shortMoney(r.total, r.currency)}</span></span>`;
+  const e = estBal(p, ds);
+  if (e) return `<span class="vm" title="${esc(p.name)}">${creditRing(e.remaining_pct, 22, (p.name || '?')[0].toUpperCase())}<span style="color:${tone(e.remaining_pct)}">≈${shortMoney(e.remaining, e.currency)}</span></span>`;
   if (p.cost_all == null) return '';
   return `<span class="vm" title="${esc(p.name)}"><span style="color:var(--t3);font-weight:500">${esc(p.name.split(' / ')[0])}</span><span>≈${shortMoney(p.cost_all, p.currency)}</span></span>`;
 }
@@ -341,8 +351,8 @@ function renderTiles(d) {
     parts.push(apiTile(d.api));
     chips.hidden = true;
   } else {
-    const ps = ds.providers || [], ring = ps.filter(p => dshBal(p, ds)), rest = ps.filter(p => !dshBal(p, ds));
-    parts.push(...ring.map(p => dshRingTile(p, ds, dshBal(p, ds))));
+    const ps = ds.providers || [], isRing = p => dshBal(p, ds) || estBal(p, ds), ring = ps.filter(isRing), rest = ps.filter(p => !isRing(p));
+    parts.push(...ring.map(p => dshBal(p, ds) ? dshRingTile(p, ds, dshBal(p, ds)) : estRingTile(p)));
     chips.hidden = !rest.length;
     chips.innerHTML = rest.map(p => dshChip(p, ds)).join('');
   }

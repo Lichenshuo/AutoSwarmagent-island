@@ -136,6 +136,7 @@ app/statusline.py   可选：Claude Code 终端状态栏，顺带记录额度
 - 动效：谁在工作，它所在的框就亮起、发光、变宽并展开，连线和咨询线上有流动的光点；没活的框变暗收起；底部的「规划想 · 构建写 · 检查验 · 探查扫」随活动点亮。角色是按名字、任务和子 agent 类型推断的，不是 agent 自己报的
 - 架构图的版式照视频重排：规划顾问是左侧整列（平时睡着，三个检查点——派活之前 / 同一错误出现两次 / 宣布完成之前——被叫醒时亮起，并有"被唤醒 n/3"），用虚线"咨询"接到主 agent；右侧是主 agent → 派发 → 构建 / 检查 / 并行探查 → 回到主 agent，所有连线首尾相连
 - 每个 agent 都标明来源：Claude 桌面端子 agent、Codex 桌面端、DSH 里的 DeepSeek / Claude API，以及经 DSH 走 OpenAI 模型的「Codex API」；顶部有各来源的数量图例
+- 金额：Claude、OpenAI（Codex API，经 DSH）、DeepSeek 都按模型的公开标价 × DSH 记录的 token 估算花费，只要在仪表盘「API 额度」里填一个总金额，就显示"剩余多少、剩余百分之几"，灵动岛上对应厂商也变成圆环（颜色规则同 Codex）。每个厂商卡片里按模型列出各自花了多少。没有默认标价的模型只统计 token，可手动填单价。OpenAI 的默认标价来自第三方价格网站，各家数字有出入，请以官方为准，不对就在卡片里改成你的实际单价
 - 预留 Codex API 接口：派活记录里 `route` 为 `api`，或 `config.json` 的 `codex_api_agents`（agent 名字列表，末尾可写 `*` 当前缀）里列出的名字，都会归到「Codex API」；其余 Codex 算桌面端
 - 新增：读取 Claude 自己派的内部子 agent（`~/.claude/projects/…/subagents/agent-*.jsonl`），显示它的角色（Explore 等）、模型、token 和正在做的步骤；最近 2 分钟有动静算运行中
 - 有任务在跑时连线上有流动的光点，没任务时动画自动停止；纯 HTML + CSS，没有额外依赖，内容没变化就不重绘

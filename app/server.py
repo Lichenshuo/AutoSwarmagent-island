@@ -1585,6 +1585,11 @@ DEFAULT_PRICES = [
     (r"claude-sonnet", {"input": 3, "output": 15, "cache_read": 0.3, "cache_write": 3.75}),
     (r"claude-haiku-5", {"input": 0.1, "output": 0.5, "cache_read": 0.01, "cache_write": 0.125}),
     (r"claude-haiku", {"input": 1, "output": 5, "cache_read": 0.1, "cache_write": 1.25}),
+    # OpenAI list prices from third-party price trackers (the official page could not be read), USD per 1M tokens
+    (r"gpt-6-astra", {"input": 10, "output": 50, "cache_read": 1}),
+    (r"gpt-6\.1-sol", {"input": 2, "output": 10, "cache_read": 0.1}),
+    (r"gpt-6\.1-terra", {"input": 1, "output": 5, "cache_read": 0.05}),
+    (r"gpt-5\.6-terra", {"input": 2, "output": 12, "cache_read": 0.2}),
     (r"deepseek.*pro", {"input": 1.74, "output": 3.48, "cache_read": 0.145}),
     (r"deepseek", {"input": 0.14, "output": 0.28, "cache_read": 0.028}),
 ]
@@ -1621,7 +1626,7 @@ def dsh_snapshot():
     now = time.time()
     today, week = local_day(now), {local_day(now - i * 86400) for i in range(7)}
     month = local_day(now)[:7]
-    blank = lambda: {"today": 0, "week": 0, "month": 0, "all": 0, "c_month": 0.0, "c_all": 0.0, "priced": 0, "sources": set(), "cur": None}
+    blank = lambda: {"today": 0, "week": 0, "month": 0, "all": 0, "c_month": 0.0, "c_all": 0.0, "priced": 0, "sources": set(), "cur": None, "models": {}}
     acc = {}
     for path in files.values():
         if now - path.stat().st_mtime > 400 * 86400:
@@ -1634,6 +1639,11 @@ def dsh_snapshot():
             a["all"] += tot
             price, src = price_for(model, (config.get("dsh_prices") or {}).get(prov))
             cost = _msg_cost(price, inp, out_t, cr, cw) if price else None
+            mm = a["models"].setdefault(str(model or "?"), {"tokens": 0, "cost": 0.0, "priced": False, "source": None})
+            mm["tokens"] += tot
+            if cost is not None:
+                mm["cost"] += cost
+                mm["priced"], mm["source"] = True, src
             if cost is not None:
                 a["priced"] += 1
                 a["sources"].add(src)
@@ -1651,18 +1661,21 @@ def dsh_snapshot():
     rank = lambda pid: (DSH_ORDER.index(pid) if pid in DSH_ORDER else len(DSH_ORDER), pid)
     for pid, a in sorted(acc.items(), key=lambda kv: rank(kv[0])):
         user_price = (config.get("dsh_prices") or {}).get(pid)
-        sample = {"deepseek": "deepseek", "anthropic": "claude-sonnet-5-5"}.get(pid)
+        sample = {"deepseek": "deepseek", "anthropic": "claude-sonnet-5-5", "openai": "gpt-6.1-sol"}.get(pid)
         known = a["priced"] > 0 or (not a["all"] and (user_price or price_for(sample, None)[0]))   # a configured vendor with no usage yet is "$0", not unknown
         cur = a["cur"] or (user_price or {}).get("currency") or ("USD" if pid in ("deepseek", "anthropic") else "USD")
         card = {"id": pid, "name": DSH_LABELS.get(pid) or provider_name(pid),
                 "tokens": {k: a[k] for k in ("today", "week", "month", "all")},
                 "price": user_price, "price_source": "custom" if "custom" in a["sources"] or (user_price and not a["sources"]) else ("default" if a["sources"] else ("default" if known else None)),
                 "credit_cfg": (config.get("dsh_credit") or {}).get(pid), "currency": cur,
-                "cost_month": a["c_month"] if known else None, "cost_all": a["c_all"] if known else None}
+                "cost_month": a["c_month"] if known else None, "cost_all": a["c_all"] if known else None,
+                "models": sorted(({"model": k, "tokens": v["tokens"], "cost": v["cost"] if v["priced"] else None, "source": v["source"]} for k, v in a["models"].items()),
+                                 key=lambda m: -(m["cost"] or 0) - m["tokens"] * 1e-12)[:8]}
         credit = card["credit_cfg"]
         if credit and card["cost_all"] is not None:
             card["credit"] = credit
             card["remaining"] = max(0.0, float(credit) - card["cost_all"])
+            card["remaining_pct"] = round(max(0.0, min(100.0, card["remaining"] / float(credit) * 100)))
         out["providers"].append(card)
     out["tokens_today"] = sum(a["today"] for a in acc.values())
     out["tokens_week"] = sum(a["week"] for a in acc.values())
