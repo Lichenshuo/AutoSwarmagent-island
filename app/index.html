@@ -289,6 +289,25 @@ footer{margin:clamp(48px,8vw,80px) 0 40px;font-size:12px;color:var(--text-3);lin
 .arch-tip .ti{border-top:1px solid #21262d;padding:6px 0 2px}.arch-tip .ti b{color:#e6edf3;font-weight:600;margin-right:8px}.arch-tip .ti span{color:#7d8590}
 .arch-tip .ti p{color:#a3acb7;margin-top:2px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .arch-tip{--c-plan:#b392f0;--c-build:#58a6ff;--c-check:#f0883e;--c-swarm:#3fb950;--c-verify:#e3b341;--c-gpt:#2bd4b0;--tx3:#7d8590}
+.arch-tip .tsub{margin-left:auto;font-weight:400;color:#7d8590;font-size:11.5px}
+.arch [data-tip]{cursor:default}
+.arch .rl:hover{border-color:color-mix(in srgb,var(--lc) 55%,var(--ln))}
+.arch .abox:hover{border-color:color-mix(in srgb,var(--gc) 55%,var(--ln))}
+.arch .cp:hover{color:var(--tx2);border-color:color-mix(in srgb,var(--c-plan) 50%,var(--ln))}
+/* 待机动画：没派活时，一束暗光每 7 秒从顾问一路走到"回到主 agent"，框面上有很淡的扫光，角色色点缓慢呼吸 */
+.arch.idle-mode .vline:not(.live)::after,.arch.idle-mode .fork:not(.live) .a::after,.arch.idle-mode .fork .l::after,.arch.idle-mode .fork .r::after{content:"";position:absolute;left:-1px;right:-1px;height:18px;top:-18px;background:linear-gradient(to bottom,transparent,var(--amb,var(--c-main)),transparent);opacity:0;animation:arch-amb-y 7s cubic-bezier(.45,0,.25,1) infinite;animation-delay:var(--d,0s)}
+.arch.idle-mode .fork:not(.live) .h::after{content:"";position:absolute;top:-1px;bottom:-1px;left:0;right:0;background:linear-gradient(to right,transparent,var(--c-main) 50%,transparent);opacity:0;animation:arch-amb-x 7s ease-out infinite;animation-delay:var(--d,0s)}
+.arch.idle-mode .vline{--d:0s;--amb:var(--c-plan)}
+.arch.idle-mode #ar-fork .a{--d:.7s}.arch.idle-mode #ar-fork .h{--d:1.1s}.arch.idle-mode #ar-fork .l,.arch.idle-mode #ar-fork .r{--d:1.5s}
+.arch.idle-mode #ar-join .l,.arch.idle-mode #ar-join .r{--d:2.6s;--amb:var(--c-swarm)}.arch.idle-mode #ar-join .h{--d:3s}.arch.idle-mode #ar-join .a{--d:3.3s;--amb:var(--c-swarm)}
+.arch.idle-mode .abox::after{content:"";position:absolute;inset:0;border-radius:14px;pointer-events:none;background:linear-gradient(110deg,transparent 35%,color-mix(in srgb,var(--gc) 9%,transparent) 50%,transparent 65%);background-size:300% 100%;background-position:100% 0;animation:arch-sheen 7s ease-in-out infinite;animation-delay:var(--d,0s)}
+.arch.idle-mode .g-adv{--d:0s}.arch.idle-mode .g-main{--d:.5s}.arch.idle-mode .g-exec,.arch.idle-mode .g-gate{--d:1.7s}
+.arch.idle-mode .rl .rdot{animation:arch-dot 4s ease-in-out infinite}
+.arch.idle-mode .r-duty .rdot,.arch.idle-mode .r-verify .rdot{animation-delay:1s}
+@keyframes arch-amb-y{0%{transform:translateY(0);opacity:0}4%{opacity:.75}16%{transform:translateY(calc(100% + 40px));opacity:0}100%{transform:translateY(calc(100% + 40px));opacity:0}}
+@keyframes arch-amb-x{0%{opacity:0;transform:scaleX(.1)}5%{opacity:.55}14%{opacity:0;transform:scaleX(1)}100%{opacity:0}}
+@keyframes arch-sheen{0%{background-position:100% 0}22%{background-position:0 0}100%{background-position:0 0}}
+@keyframes arch-dot{0%,100%{opacity:.3}50%{opacity:.85}}
 @keyframes arch-breathe{0%,100%{opacity:.35}50%{opacity:1}}
 @keyframes arch-spin{to{transform:rotate(360deg)}}
 @keyframes arch-fy{0%{transform:translateY(0)}100%{transform:translateY(calc(100% + 60px))}}
@@ -801,8 +820,8 @@ let archTips = {}; let archBuilt = false; const archCache = {}; const cpSeen = n
 const archSet = (id, html) => { if (archCache[id] !== html) { archCache[id] = html; $('#' + id).innerHTML = html; } };
 const tog = (id, cls, on) => $('#' + id).classList.toggle(cls, !!on);
 function archBuild() {
-  const small = k => `<div class="rl r-${k} off" id="ar-${k}"><h4><i class="rdot"></i>${ROLES[k].name}<span class="st" id="ar-${k}-st"></span></h4><div class="grp" id="ar-${k}-g"></div></div>`;
-  const big = (id, cls, inner) => `<div class="abox ${cls}" id="ar-g-${id}"><div class="bh"><span class="bt" id="ar-g-${id}-t"></span><span class="mdw" id="ar-g-${id}-md"></span><span class="st" id="ar-g-${id}-st"></span></div>${inner}</div>`;
+  const small = k => `<div class="rl r-${k} off" id="ar-${k}" data-tip="role:${k}"><h4><i class="rdot"></i>${ROLES[k].name}<span class="st" id="ar-${k}-st"></span></h4><div class="grp" id="ar-${k}-g"></div></div>`;
+  const big = (id, cls, inner) => `<div class="abox ${cls}" id="ar-g-${id}" data-tip="box:${id}"><div class="bh"><span class="bt" id="ar-g-${id}-t"></span><span class="mdw" id="ar-g-${id}-md"></span><span class="st" id="ar-g-${id}-st"></span></div>${inner}</div>`;
   $('#arch').innerHTML = `<div class="ps" id="ar-ps"></div><div class="price" id="ar-price"></div>
     ${big('adv', 'g-adv', '<div class="cps" id="ar-cps"></div>')}
     <div class="vline dash" id="ar-consult"><em>咨询</em></div>
@@ -853,7 +872,10 @@ function renderArch(d) {
     const groups = {};
     for (const x of list) { const key = chanOf(x) + '|' + (x.model || '') + '|' + (x.effort || ''); (groups[key] = groups[key] || { key: k + '|' + key, ch: CHANNELS[chanOf(x)], model: x.model, effort: x.effort, n: 0, run: 0, wait: 0, last: 0, doing: '', items: [] }); const g = groups[key]; g.n++; g.run += x.run && !x.wait ? 1 : 0; g.wait += x.wait ? 1 : 0; g.items.push(x); if (x.last >= g.last) { g.last = x.last; g.doing = x.doing; } }
     const gs = Object.values(groups).sort((a, b) => b.run - a.run || b.n - a.n).slice(0, 4);
-    for (const g of gs) archTips[g.key] = g;
+    const row = x => `<div class="ti"><b>${esc(x.name || '子 agent')}</b><span>${esc(CHANNELS[chanOf(x)].short)} · ${esc(prettyModel(x.model) || '模型未知')}${x.effort ? ' ' + esc(x.effort) : ''} · ${x.run ? (x.wait ? '待批准' : '进行中') : x.bad ? '失败' : '完成'} · ${agoS(x.last)} · ${tokens(x.tokens)} token</span>${x.doing || x.task ? `<p>${esc(x.doing || x.task)}</p>` : ''}</div>`;
+    for (const g of gs) archTips[g.key] = `<div class="th">${esc(g.ch.short)} ${chip(g.model, g.effort)}</div>` + g.items.slice(0, 6).map(row).join('') + (g.items.length > 6 ? `<div class="ti"><span>还有 ${g.items.length - 6} 个</span></div>` : '');
+    const hist = norm.filter(x => x.role === k).sort((a, b) => b.last - a.last).slice(0, 6);
+    archTips['role:' + k] = `<div class="th">${ROLES[k].name}<span class="tsub">${on ? on + ' 个在干' : '空闲'}</span></div>` + (hist.length ? hist.map(row).join('') : '<div class="ti"><span>最近两天没有派到这一类活</span></div>');
     const dayStart = new Date().setHours(0, 0, 0, 0) / 1000;
     const past = norm.filter(x => x.role === k && !x.run && !x.wait && x.last >= dayStart), lastDone = Math.max(0, ...past.map(x => x.last));
     const idleLine = `<div class="idle-l">${past.length ? `今天做过 <b>${past.length}</b> 次 · 最近 ${clock(lastDone)}` : '今天还没派到'}</div>`;
@@ -873,7 +895,7 @@ function renderArch(d) {
   const cp2 = advOn && failedTwice, cp3 = advOn && !running && justDone && !cp2, cp1 = advOn && !running && !justDone && !cp2;
   if (!advOn && !running && !justDone) cpSeen.clear();
   [cp1, cp2, cp3].forEach((v, i) => v && cpSeen.add(i));
-  archSet('ar-cps', [['派活前', cp1], ['同一错误两次', cp2], ['完成前', cp3]].map(([t, on], i) => `<span class="cp ${on ? 'on' : cpSeen.has(i) ? 'dn' : ''}">${cpSeen.has(i) && !on ? '✓ ' : ''}${t}</span>`).join('') + `<span class="wake">${cpSeen.size}/3</span>`);
+  archSet('ar-cps', [['派活前', cp1], ['同一错误两次', cp2], ['完成前', cp3]].map(([t, on], i) => `<span class="cp ${on ? 'on' : cpSeen.has(i) ? 'dn' : ''}" data-tip="cp:${i}">${cpSeen.has(i) && !on ? '✓ ' : ''}${t}</span>`).join('') + `<span class="wake">${cpSeen.size}/3</span>`);
   /* 分工框与连线 */
   for (const [g, ks] of [['exec', ['build', 'duty']], ['gate', ['check', 'verify']]]) {
     const n = ks.reduce((s, k) => s + act[k], 0);
@@ -883,6 +905,12 @@ function renderArch(d) {
   const eN = act.build + act.duty, gN = act.check + act.verify;
   const eOn = eN > 0, gOn = gN > 0;
   $('#arch').style.setProperty('--p', eN === gN ? .5 : eN > gN ? (gN ? .58 : .66) : (eN ? .42 : .34));
+  const sessTip = (S, role) => `<div class="th">${role}${chip(S.model, S.effort)}</div><div class="ti"><b>${esc(S.name || '未设置')}</b><span>${!S.name ? '用 --arch-role 指定会话' : !S.found ? '没找到这个标题的会话，运行 --arch-sessions 核对' : (S.active ? '正在活动' : '空闲') + (S.last_at ? ' · 最后活动 ' + agoS(S.last_at) : '')}</span></div>`;
+  archTips['box:adv'] = sessTip(A, '顾问') + `<div class="ti"><span>本轮被唤醒 ${cpSeen.size}/3 次</span></div>`;
+  archTips['box:main'] = sessTip(M, '主 agent') + `<div class="ti"><span>在干的子 agent ${running} 个${waiting ? ` · 待批准 ${waiting} 个` : ''}</span></div>`;
+  for (const [g, ks] of [['exec', ['build', 'duty']], ['gate', ['check', 'verify']]]) archTips['box:' + g] = `<div class="th">${g === 'exec' ? '执行组' : '把关组'}</div>` + ks.map(k => `<div class="ti"><b>${ROLES[k].name}</b><span>${act[k] ? act[k] + ' 个在干' : '空闲'} · 两天内 ${norm.filter(x => x.role === k).length} 个</span></div>`).join('');
+  [['派活前', '方案定下来之前问一次：这个方向对吗？'], ['同一错误两次', '同一个子 agent 失败两次时问：是真原因还是在打转？'], ['完成前', '宣布完成之前问：真的做完了吗？']].forEach(([t, q], i) => archTips['cp:' + i] = `<div class="th">${t}</div><div class="ti"><span>${q}</span></div><div class="ti"><span>按顾问会话是否活动和子 agent 状态推断</span></div>`);
+  tog('arch', 'idle-mode', !running && !waiting);
   tog('ar-consult', 'live', advOn);
   for (const f of ['ar-fork', 'ar-join']) { tog(f, 'live', running > 0); tog(f, 'lon', eOn); tog(f, 'ron', gOn); }
   tog('ar-back', 'on', justDone);
@@ -901,10 +929,9 @@ function renderArch(d) {
 const agoS = t => { const s = Math.max(0, sec() - t); return s < 60 ? Math.round(s) + ' 秒前' : s < 3600 ? Math.round(s / 60) + ' 分钟前' : Math.round(s / 3600) + ' 小时前'; };
 $('#arch').addEventListener('mousemove', e => {
   const tip = $('#arch-tip'); if (!tip) return;
-  const el = e.target.closest('[data-tip]'), g = el && archTips[el.dataset.tip];
-  if (!g) { tip.classList.remove('show'); return; }
-  const html = `<div class="th">${esc(g.ch.short)} ${chip(g.model, g.effort)}</div>` + g.items.slice(0, 6).map(x => `<div class="ti"><b>${esc(x.name || '子 agent')}</b><span>${x.wait ? '待批准' : '进行中'} · ${agoS(x.last)} · ${tokens(x.tokens)} token</span><p>${esc(x.doing || x.task || '')}</p></div>`).join('') + (g.items.length > 6 ? `<div class="ti"><span>还有 ${g.items.length - 6} 个</span></div>` : '');
-  if (tip.dataset.k !== g.key + g.items.length + g.last) { tip.innerHTML = html; tip.dataset.k = g.key + g.items.length + g.last; }
+  const el = e.target.closest('[data-tip]'), html = el && archTips[el.dataset.tip];
+  if (!html) { tip.classList.remove('show'); return; }
+  if (tip.dataset.k !== el.dataset.tip || tip.innerHTML.length !== html.length) { tip.innerHTML = html; tip.dataset.k = el.dataset.tip; }
   const w = tip.offsetWidth || 300, h = tip.offsetHeight || 100;
   tip.style.left = Math.min(innerWidth - w - 12, e.clientX + 14) + 'px';
   tip.style.top = (e.clientY + h + 24 > innerHeight ? e.clientY - h - 14 : e.clientY + 16) + 'px';
