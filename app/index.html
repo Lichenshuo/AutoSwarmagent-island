@@ -196,88 +196,95 @@ footer{margin:clamp(48px,8vw,80px) 0 40px;font-size:12px;color:var(--text-3);lin
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 
-/* 架构实时图（苹果风）：固定 DOM，只改 class 和文字；动画只用 transform/opacity，只在有任务时才开 */
-.arch{--c-main:#0071e3;--c-plan:#af52de;--c-build:#0a84ff;--c-check:#ff9f0a;--c-swarm:#30b455;--c-verify:#d4a017;--tx:#1d1d1f;--tx2:#6e6e73;--tx3:#86868b;--hl:rgba(0,0,0,.07);background:var(--surface);color:var(--tx);border-radius:var(--r-panel);padding:28px 28px 22px;font-family:var(--font);font-size:13px;box-shadow:var(--sh-panel);overflow:hidden;line-height:1.5}
-.arch .ps{color:var(--tx3);margin-bottom:6px;font-size:12.5px}.arch .ps b{color:var(--tx);font-weight:600}
-.arch .legend,.arch .chs{display:flex;flex-wrap:wrap;gap:6px 16px;color:var(--tx2);font-size:12px;margin-bottom:6px}
-.arch .legend{margin-bottom:4px}.arch .chs{margin-bottom:22px}
+/* 架构实时图：深色终端风（照视频）+ 苹果式的交互与层级。固定 DOM，只改 class 和文字；动画只用 transform/opacity，只在有任务时才开 */
+.arch{--c-main:#79c0ff;--c-plan:#a371f7;--c-build:#58a6ff;--c-check:#f0883e;--c-swarm:#3fb950;--c-verify:#e3b341;--bg:#0d1117;--bg2:#0a0e14;--ln:#30363d;--tx:#e6edf3;--tx2:#9aa4af;--tx3:#6e7681;--sp:cubic-bezier(.32,.72,0,1);background:var(--bg);color:#c9d1d9;border-radius:var(--r-panel);padding:24px 24px 18px;font-family:var(--mono);font-size:12.5px;box-shadow:var(--sh-panel);overflow:hidden;line-height:1.55}
+.arch .ps{color:#8b949e;margin-bottom:10px}.arch .ps b{color:var(--tx);font-weight:600}.arch .ps i{font-style:normal;color:var(--c-main)}
+.arch .legend,.arch .chs{display:flex;flex-wrap:wrap;gap:4px 18px;color:#8b949e;font-size:11.5px;margin-bottom:8px}
+.arch .chs{margin-bottom:20px}
 .arch .legend span,.arch .chs span{white-space:nowrap}.arch .legend b{font-weight:600}
 .arch .legend .d,.arch .chs i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:0}
 /* 大框 = 分工 */
-.arch .big{position:relative;background:#f5f5f7;border-radius:24px;padding:18px 16px 16px;transition:background .5s,box-shadow .5s;min-width:0;box-shadow:inset 0 0 0 1px transparent}
-.arch .big>.bh{display:flex;align-items:center;gap:8px;padding:0 4px}
-.arch .big>.bh b{font-size:16px;font-weight:650;letter-spacing:-.01em;color:var(--tx)}
-.arch .big>.bh b::before{content:"";display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--gc);opacity:.45;margin-right:8px;transition:opacity .4s}
-.arch .big>.bh .st{margin-left:auto;font-size:12px;color:var(--tx3);background:rgba(0,0,0,.05);padding:1px 10px;border-radius:999px;white-space:nowrap}
-.arch .big>.bd{color:var(--tx3);font-size:12px;padding:2px 4px 14px}
-.arch .big.on{background:color-mix(in srgb,var(--gc) 7%,#fff);box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--gc) 55%,transparent),0 10px 36px color-mix(in srgb,var(--gc) 20%,transparent)}
+.arch .big{position:relative;border:1px solid var(--ln);border-radius:16px;padding:14px 14px 14px;background:var(--bg2);transition:border-color .5s var(--sp),box-shadow .6s var(--sp),background .5s;min-width:0}
+.arch .big>.bh{display:flex;align-items:center;gap:8px}
+.arch .big>.bh b{font-size:14px;font-weight:700;color:var(--gc);letter-spacing:.02em}
+.arch .big>.bh b::before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--gc);opacity:.4;margin-right:8px;transition:opacity .4s}
+.arch .big>.bh .st{margin-left:auto;font-size:11px;color:var(--tx3);white-space:nowrap}
+.arch .big>.bd{color:var(--tx2);font-size:11.5px;margin:1px 0 12px 16px}
+.arch .big.on{border-color:var(--gc);background:color-mix(in srgb,var(--gc) 5%,var(--bg2));box-shadow:0 0 0 1px color-mix(in srgb,var(--gc) 35%,transparent),0 0 30px color-mix(in srgb,var(--gc) 22%,transparent),inset 0 0 40px color-mix(in srgb,var(--gc) 8%,transparent)}
 .arch .big.on>.bh b::before{opacity:1;animation:arch-pulse 1.4s ease-in-out infinite}
-.arch .big.on>.bh .st{background:color-mix(in srgb,var(--gc) 16%,#fff);color:var(--gc);font-weight:600}
-.arch .sm-wrap{display:grid;gap:12px}
+.arch .big.on>.bh .st{color:var(--gc);font-weight:600}
+.arch .sm-wrap{display:grid;gap:10px}
 .arch .g-main{--gc:var(--c-main)}.arch .g-exec{--gc:var(--c-build)}.arch .g-gate{--gc:var(--c-check)}.arch .g-adv{--gc:var(--c-plan)}
 .arch .g-main>.sm-wrap{grid-template-columns:1fr 1fr}
-.arch .bigrow{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;align-items:start;padding:34px 0 6px;position:relative}
-.arch .bigrow::before{content:"";position:absolute;top:16px;left:16.66%;right:16.66%;height:2px;border-radius:2px;background:#e5e5ea}
-.arch .bigrow .big>.up{position:absolute;top:-18px;left:50%;width:2px;height:18px;margin-left:-1px;background:#e5e5ea;transition:background .4s}
+.arch .bigrow{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;padding:34px 0 4px;position:relative;align-items:start}
+.arch .bigrow::before{content:"";position:absolute;top:16px;left:16.66%;right:16.66%;height:2px;background:var(--ln)}
+.arch .bigrow .big>.up{position:absolute;top:-18px;left:50%;width:2px;height:18px;margin-left:-1px;background:var(--ln);transition:background .4s}
 .arch .bigrow .big.on>.up{background:var(--gc)}
 .arch .bigrow .big.on>.up::after{content:"";position:absolute;left:-3px;top:0;width:8px;height:8px;border-radius:50%;background:var(--gc);animation:arch-flow 1.2s linear infinite}
-.arch .g-adv>.up{background:none!important;border-left:2px dashed #d2d2d7}
+.arch .g-adv>.up{background:none!important;border-left:2px dashed var(--ln)}
 .arch .g-adv.on>.up{border-left-color:var(--gc)}
-.arch .wire{position:relative;height:22px;width:2px;margin:0 auto;background:#e5e5ea;border-radius:2px;transition:background .4s}
+.arch .wire{position:relative;height:22px;width:2px;margin:0 auto;background:var(--ln);transition:background .4s}
 .arch .wire.live{background:var(--c-main)}
 .arch .wire.live::after{content:"";position:absolute;left:-3px;top:0;width:8px;height:8px;border-radius:50%;background:var(--c-main);animation:arch-flow 1.2s linear infinite}
 .arch .wire.back.live{background:var(--c-swarm)}.arch .wire.back.live::after{background:var(--c-swarm);animation-direction:reverse}
-/* 小框 = 角色 */
-.arch .rl{--lc:#8e8e93;position:relative;background:#fff;border-radius:16px;padding:12px 14px;box-shadow:0 1px 2px rgba(0,0,0,.05),0 4px 14px rgba(0,0,0,.04);transition:box-shadow .5s,transform .5s var(--ease-out-quart);min-width:0}
+/* 小框 = 角色（可点击折叠，悬停微抬起） */
+.arch .rl{--lc:#6e7681;position:relative;background:var(--bg);border:1px solid var(--ln);border-radius:11px;padding:10px 12px;transition:border-color .45s var(--sp),box-shadow .6s var(--sp),transform .45s var(--sp);min-width:0;cursor:default}
 .arch .r-plan{--lc:var(--c-plan)}.arch .r-build{--lc:var(--c-build)}.arch .r-check{--lc:var(--c-check)}.arch .r-duty{--lc:var(--c-swarm)}.arch .r-verify{--lc:var(--c-verify)}.arch .r-ana,.arch .r-asg,.arch .r-main{--lc:var(--c-main)}
-.arch .rl h4{display:flex;gap:8px;align-items:center;font-size:14px;font-weight:600;color:var(--tx)}
-.arch .rl h4 .dot{width:8px;height:8px;border-radius:50%;background:var(--lc);opacity:.35;flex:none;transition:opacity .4s}
-.arch .rl h4 .st{margin-left:auto;font-size:11.5px;font-weight:500;color:var(--tx3);white-space:nowrap}
-.arch .rl .duty{color:var(--tx3);font-size:12px;margin-top:2px}
-.arch .rl .clip{position:absolute;inset:0;border-radius:16px;overflow:hidden;pointer-events:none}
+.arch .rl.sm:not(.ctl){cursor:pointer}
+.arch .rl:hover{transform:translateY(-1px);border-color:color-mix(in srgb,var(--lc) 60%,var(--ln))}
+.arch .rl h4{display:flex;gap:8px;align-items:center;font-size:13px;font-weight:600;color:var(--tx)}
+.arch .rl h4 .nm{color:var(--lc)}
+.arch .rl h4 .dot{width:8px;height:8px;border-radius:50%;background:var(--lc);opacity:.4;flex:none;transition:opacity .4s}
+.arch .rl h4 .st{margin-left:auto;font-size:11px;font-weight:400;color:var(--tx3);white-space:nowrap}
+.arch .rl .duty{color:var(--tx2);font-size:11.5px;margin-top:1px}
+.arch .rl .clip{position:absolute;inset:0;border-radius:11px;overflow:hidden;pointer-events:none}
 .arch .rl .clip::before{content:"";position:absolute;left:0;top:0;height:2px;width:35%;background:linear-gradient(90deg,transparent,var(--lc),transparent);opacity:0}
-.arch .rl.on{box-shadow:0 0 0 1.5px var(--lc),0 8px 24px color-mix(in srgb,var(--lc) 26%,transparent);transform:translateY(-1px)}
+.arch .rl .clip::after{content:"";position:absolute;inset:0;border-radius:11px;box-shadow:inset 0 0 18px color-mix(in srgb,var(--lc) 40%,transparent);opacity:0}
+.arch .rl.on{border-color:var(--lc)}
 .arch .rl.on h4 .dot{opacity:1;animation:arch-pulse 1.2s ease-in-out infinite}
-.arch .rl.on h4 .st{color:var(--lc);font-weight:600}
-.arch .rl.on .clip::before{opacity:1;animation:arch-sweep 2.4s linear infinite}
-.arch .rl.idle{opacity:1}
-.arch .rl.off{background:rgba(255,255,255,.7);box-shadow:inset 0 0 0 1px rgba(0,0,0,.06)}
-.arch .rl.off h4 .nm{color:var(--tx2)}
-.arch .rl .do1{color:var(--tx2);font-size:12px;margin-top:6px}
-.arch .rows{display:grid;gap:8px;margin:10px 0 2px}
-.arch .rows:empty{display:none}
-.arch .ag{display:grid;grid-template-columns:14px minmax(0,1fr);column-gap:6px;padding:7px 9px;border-radius:10px;background:#f5f5f7}
-.arch .ag .ic{grid-row:span 3;font-size:11px;line-height:1.7}
-.arch .ag.run .ic{color:var(--lc)}.arch .ag.ok .ic{color:#30b455}.arch .ag.bad .ic{color:#ff3b30}.arch .ag.wait .ic{color:#ff9f0a}.arch .ag.idle .ic{color:#aeaeb2}
-.arch .ag .t{display:flex;flex-wrap:wrap;gap:2px 6px;align-items:center;min-width:0}
-.arch .ag .nm2{font-weight:600;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
-.arch .pill{max-width:100%;font-size:10.5px;font-weight:600;color:#fff;background:var(--ch,#8e8e93);border-radius:999px;padding:0 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
-.arch .ag .md,.arch .ag .do{color:var(--tx3);font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.arch .ag.run .do{color:var(--tx)}.arch .ag.run .do::after{content:"▍";color:var(--lc);animation:arch-pulse 1s steps(2) infinite}
-.arch .more{color:var(--tx3);font-size:11.5px;padding-left:4px}
-.arch .rl .bar{height:3px;border-radius:2px;background:#ececf0;margin-top:10px;overflow:hidden}.arch .rl .bar i{display:block;height:100%;background:var(--lc);transition:width .6s;border-radius:2px}
-.arch .rl .foot{color:var(--tx3);font-size:11.5px;padding-top:6px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
-.arch .r-plan .cps{display:grid;gap:6px;margin:10px 0 6px;align-content:start}.arch .r-plan .cp{min-height:0;height:auto}
-.arch .cp{border-radius:10px;padding:6px 10px;background:#f5f5f7;transition:background .4s,box-shadow .4s}
-.arch .cp{line-height:1.35}.arch .cp b{display:block;font-size:12px;color:var(--tx2);font-weight:600;line-height:1.35}.arch .cp span{display:block;font-size:11px;color:var(--tx3);line-height:1.35}
-.arch .cp.on{background:color-mix(in srgb,var(--c-plan) 14%,#fff);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--c-plan) 50%,transparent)}.arch .cp.on b{color:var(--c-plan)}
+.arch .rl.on h4 .st{color:var(--lc)}
+.arch .rl.on .clip::before{opacity:1;animation:arch-sweep 2.2s linear infinite}
+.arch .rl.on .clip::after{animation:arch-glow 2s ease-in-out infinite}
+.arch .rl.idle{border-color:color-mix(in srgb,var(--lc) 40%,var(--ln))}
+.arch .rl.off{border-style:dashed}
+.arch .rl .do1{color:#c9d1d9;font-size:11.5px;margin-top:5px}
+.arch .rl .body{display:grid;grid-template-rows:1fr;transition:grid-template-rows .5s var(--sp),opacity .4s}
+.arch .rl .body>div{overflow:hidden;min-height:0}
+.arch .rl.fold .body{grid-template-rows:0fr;opacity:0}
+.arch .rows{display:grid;gap:8px;margin:9px 0 2px}.arch .rows:empty{display:none}
+.arch .ag{display:grid;grid-template-columns:14px minmax(0,1fr);column-gap:6px;border-left:2px solid var(--ch,#30363d);padding-left:7px;margin-left:-2px}
+.arch .ag .ic{grid-row:span 3;font-size:11px}
+.arch .ag.run .ic{color:var(--lc)}.arch .ag.ok .ic{color:#3fb950}.arch .ag.bad .ic{color:#f85149}.arch .ag.wait .ic{color:#d29922}.arch .ag.idle .ic{color:#6e7681}
+.arch .ag .t{display:flex;flex-wrap:wrap;gap:2px 6px;align-items:baseline;min-width:0}
+.arch .ag .nm2{color:var(--tx);font-weight:600;font-size:12.5px;line-height:1.5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.arch .pill{max-width:100%;font-size:10.5px;font-weight:600;color:#0d1117;background:var(--ch,#6e7681);border-radius:9px;padding:0 7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.arch .ag .md,.arch .ag .do{color:#8b949e;font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.arch .ag.run .do{color:#c9d1d9}.arch .ag.run .do::after{content:"▍";color:var(--lc);animation:arch-pulse 1s steps(2) infinite}
+.arch .more{color:var(--tx3);font-size:11.5px}
+.arch .rl .bar{height:3px;border-radius:2px;background:#21262d;margin-top:8px;overflow:hidden}.arch .rl .bar i{display:block;height:100%;background:var(--lc);transition:width .6s var(--sp)}
+.arch .rl .foot{color:var(--tx3);font-size:11.5px;border-top:1px dashed #21262d;margin-top:6px;padding-top:5px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.arch .r-plan .cps{display:grid;gap:6px;margin:9px 0 4px}
+.arch .cp{border:1px solid var(--ln);border-radius:7px;padding:5px 9px;line-height:1.35;transition:border-color .4s,background .4s}
+.arch .cp b{display:block;font-size:12px;color:#8b949e;font-weight:600}.arch .cp span{display:block;font-size:11px;color:var(--tx3)}
+.arch .cp.on{border-color:var(--c-plan);background:color-mix(in srgb,var(--c-plan) 20%,transparent)}.arch .cp.on b{color:var(--tx)}
 .arch .r-plan .wake{display:flex;justify-content:space-between;color:var(--tx3);font-size:11.5px}
-.arch .dispatch{max-width:360px;margin:0 auto;text-align:center;padding:10px 16px;background:#f5f5f7;border-radius:16px;transition:box-shadow .5s,background .5s}
-.arch .dispatch h4{justify-content:center;font-size:13.5px;font-weight:600}.arch .dispatch .duty{color:var(--tx3);font-size:12px}
-.arch .dispatch.on{background:color-mix(in srgb,var(--c-swarm) 8%,#fff);box-shadow:inset 0 0 0 1.5px var(--c-swarm)}
+.arch .dispatch{max-width:360px;margin:0 auto;text-align:center;padding:8px 14px;border:1px solid var(--ln);border-radius:11px;background:var(--bg);transition:border-color .5s,box-shadow .5s}
+.arch .dispatch h4{justify-content:center;font-size:13px;font-weight:600;color:var(--tx)}.arch .dispatch .duty{color:var(--tx2);font-size:11.5px}
+.arch .dispatch.on{border-color:var(--c-swarm);box-shadow:0 0 22px color-mix(in srgb,var(--c-swarm) 25%,transparent)}
 .arch .narr{display:none}
-.arch .log{margin-top:22px;border-top:1px solid var(--hl);padding-top:12px;display:grid;gap:5px;font-size:12px}
-.arch .log div{display:grid;grid-template-columns:44px 56px 1fr auto;gap:10px;white-space:nowrap;color:var(--tx2)}
+.arch .log{margin-top:20px;border-top:1px solid #21262d;padding-top:8px;display:grid;gap:3px}
+.arch .log div{display:grid;grid-template-columns:44px 56px 1fr auto;gap:10px;white-space:nowrap}
 .arch .log div>*{overflow:hidden;text-overflow:ellipsis}
-.arch .log .t{color:var(--tx3);font-variant-numeric:tabular-nums}.arch .log .m{color:var(--tx)}.arch .log .w{color:var(--c-main)!important}
-.arch .log .s.ok{color:#30b455}.arch .log .s.bad{color:#ff3b30}.arch .log .s.run{color:var(--c-main)}
-.arch .prompt{margin-top:12px;background:#f5f5f7;border-radius:12px;padding:8px 12px;color:var(--tx3);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.arch .prompt b{color:var(--tx);font-weight:500}
+.arch .log .t{color:var(--tx3)}.arch .log .m{color:#c9d1d9}.arch .log .s{color:#8b949e}.arch .log .w{color:var(--c-main)!important}
+.arch .log .s.ok{color:#3fb950}.arch .log .s.bad{color:#f85149}.arch .log .s.run{color:var(--c-main)}
+.arch .prompt{margin-top:10px;border:1px solid #21262d;border-radius:8px;padding:6px 10px;color:#8b949e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.arch .prompt b{color:#c9d1d9;font-weight:400}
 @keyframes arch-sweep{from{transform:translateX(-100%)}to{transform:translateX(290%)}}
+@keyframes arch-glow{0%,100%{opacity:.15}50%{opacity:.85}}
 @keyframes arch-pulse{50%{opacity:.3}}
 @keyframes arch-flow{from{transform:translateY(0);opacity:1}to{transform:translateY(17px);opacity:.1}}
-@media (prefers-reduced-motion:reduce){.arch *,.arch *::before,.arch *::after{animation:none!important}}
-@media (max-width:860px){.arch{padding:20px 16px 16px}.arch .bigrow{grid-template-columns:1fr;gap:14px;padding-top:18px}.arch .bigrow::before,.arch .bigrow .big>.up{display:none}.arch .g-main>.sm-wrap{grid-template-columns:1fr}.arch .log div{grid-template-columns:44px 1fr auto}.arch .log .w{display:none}}
+@media (prefers-reduced-motion:reduce){.arch *,.arch *::before,.arch *::after{animation:none!important;transition:none!important}}
+@media (max-width:860px){.arch{padding:18px 14px 14px}.arch .bigrow{grid-template-columns:1fr;gap:12px;padding-top:16px}.arch .bigrow::before,.arch .bigrow .big>.up{display:none}.arch .g-main>.sm-wrap{grid-template-columns:1fr}.arch .log div{grid-template-columns:44px 1fr auto}.arch .log .w{display:none}}
 </style>
 </head>
 <body>
@@ -772,7 +779,7 @@ const chanOf = x => x.lane === 'claude-sub' ? 'cd' : x.lane === 'codex' ? (x.rou
 let archBuilt = false; const archCache = {};
 const archSet = (id, html) => { if (archCache[id] !== html) { archCache[id] = html; $('#' + id).innerHTML = html; } };
 function archBuild() {
-  const small = k => `<div class="node rl sm r-${k} off" id="ar-${k}"><span class="clip"></span><h4><span class="dot"></span><span class="nm">${ROLES[k].name}</span><span class="st" id="ar-${k}-st"></span></h4><div class="duty">${ROLES[k].duty}</div>${ROLES[k].ctl ? `<div class="do1" id="ar-${k}-do"></div>` : `<div class="rows" id="ar-${k}-rows"></div><div class="bar"><i id="ar-${k}-bar" style="width:0"></i></div><div class="foot" id="ar-${k}-foot"></div>`}</div>`;
+  const small = k => `<div class="node rl sm r-${k} off" id="ar-${k}"><span class="clip"></span><h4><span class="dot"></span><span class="nm">${ROLES[k].name}</span><span class="st" id="ar-${k}-st"></span></h4><div class="duty">${ROLES[k].duty}</div>${ROLES[k].ctl ? `<div class="do1" id="ar-${k}-do"></div>` : `<div class="body"><div><div class="rows" id="ar-${k}-rows"></div><div class="bar"><i id="ar-${k}-bar" style="width:0"></i></div><div class="foot" id="ar-${k}-foot"></div></div></div>`}</div>`;
   const big = (id, cls, title, desc, inner, up) => `<div class="big ${cls}" id="ar-g-${id}">${up ? '<i class="up"></i>' : ''}<div class="bh"><b>${title}</b><span class="st" id="ar-g-${id}-st"></span></div><div class="bd">${desc}</div><div class="sm-wrap">${inner}</div></div>`;
   const adv = `<div class="node rl sm r-plan off" id="ar-plan"><span class="clip"></span><h4><span class="dot"></span><span class="nm">${ROLES.plan.name}</span><span class="st" id="ar-plan-st"></span></h4><div class="duty">${ROLES.plan.duty}</div>
       <div class="cps" id="ar-cps"></div><div class="wake"><span>被唤醒</span><b id="ar-wake"></b></div><div class="rows" id="ar-plan-rows"></div><div class="bar"><i id="ar-plan-bar" style="width:0"></i></div><div class="foot" id="ar-plan-foot"></div></div>`;
@@ -789,6 +796,7 @@ function archBuild() {
     <div class="narr" id="ar-narr"></div><div class="log" id="ar-log"></div><div class="prompt" id="ar-prompt"></div>`;
   archBuilt = true;
 }
+$('#arch').addEventListener('click', e => { const r = e.target.closest('.rl.sm:not(.ctl)'); if (r) r.classList.toggle('fold'); });
 function renderArch(d) {
   if (!archBuilt) archBuild();
   const calls = (d.calls || []).filter(c => !c.probe);
@@ -833,7 +841,7 @@ function renderArch(d) {
     $('#ar-' + k + '-bar').style.width = total ? Math.round(fin / total * 100) + '%' : '0';
     archSet(`ar-${k}-foot`, `<span>${total ? `${fin}/${total} 已收工` : '本次没有派到这一路'}</span><span>${tokens(list.reduce((n, x) => n + x.tokens, 0))} token</span>`);
   }
-  archSet('ar-ps', `运行 <b>${running}</b> · 待批准 <b>${waiting}</b> · 共 <b>${norm.length}</b> 个 agent · ${tokens(norm.reduce((n, x) => n + x.tokens, 0))} token  · 角色按名字和任务推断`);
+  archSet('ar-ps', `PS&gt; <b>autoswarm</b> <i>watch</i> · 运行 <b>${running}</b> · 待批准 <b>${waiting}</b> · 共 <b>${norm.length}</b> 个 agent · ${tokens(norm.reduce((n, x) => n + x.tokens, 0))} token  · 角色按名字和任务推断`);
   archSet('ar-legend', Object.entries(ROLES).filter(([k]) => WORK.includes(k)).map(([k, r]) => `<span><i class="d" style="background:var(${r.col})"></i><b style="color:var(${r.col})">${r.name}</b> ${norm.filter(x => x.role === k).length} 个${act[k] ? ' · ' + act[k] + ' 在跑' : ''}</span>`).join(''));
   archSet('ar-chs', Object.entries(CHANNELS).map(([k, c]) => { const l = norm.filter(x => chanOf(x) === k); return l.length ? `<span><i style="background:${c.col}"></i>${esc(c.name)} ${l.length}${l.some(x => x.run) ? ' · ' + l.filter(x => x.run).length + ' 在跑' : ''}</span>` : ''; }).join('') || '<span>还没有派过活</span>');
   const failedTwice = agents.some(a => (a.failed_total || a.failed || 0) >= 2 || (a.failed || 0) >= 1 && a.rounds >= 2);
@@ -861,7 +869,7 @@ function renderArch(d) {
     .filter(e => e.t).sort((x, y) => y.t - x.t).slice(0, 6);
   archSet('ar-log', events.map(e => `<div><span class="t">${clock(e.t)}</span><span class="w" style="color:var(--c-main)">${esc(e.w)}</span><span class="m">${esc(e.m)}</span><span class="s ${e.st}">${e.lab}</span></div>`).join(''));
   const newest = norm.filter(x => x.run).sort((x, y) => y.last - x.last)[0];
-  archSet('ar-prompt', (newest ? `<b>${esc(newest.name)}</b> ${esc(newest.doing)}` : '没有正在运行的任务'));
+  archSet('ar-prompt', '&gt; ' + (newest ? `<b>${esc(newest.name)}</b> ${esc(newest.doing)}` : '没有正在运行的任务'));
 }
 function render() {
   const d = state.data;
