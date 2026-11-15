@@ -197,7 +197,8 @@ footer{margin:clamp(48px,8vw,80px) 0 40px;font-size:12px;color:var(--text-3);lin
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 
 /* 架构实时图：深色终端风（照视频）。少字、同类 agent 合并成一行；连线由整块元素画出，不会断；动画是沿线流动的光和缓慢呼吸的光晕，只在有任务时开 */
-.arch{--c-main:#79c0ff;--c-plan:#b392f0;--c-build:#58a6ff;--c-check:#f0883e;--c-swarm:#3fb950;--c-verify:#e3b341;--c-gpt:#2bd4b0;--bg:#0d1117;--bg2:#0a0d12;--ln:#2a3038;--tx:#e6edf3;--tx2:#a3acb7;--tx3:#7d8590;--sp:cubic-bezier(.32,.72,0,1);--cg:22px;
+@property --p{syntax:'<number>';inherits:true;initial-value:.5}
+.arch{--p:.5;transition:--p .9s cubic-bezier(.32,.72,0,1);--c-main:#79c0ff;--c-plan:#b392f0;--c-build:#58a6ff;--c-check:#f0883e;--c-swarm:#3fb950;--c-verify:#e3b341;--c-gpt:#2bd4b0;--bg:#0d1117;--bg2:#0a0d12;--ln:#2a3038;--tx:#e6edf3;--tx2:#a3acb7;--tx3:#7d8590;--sp:cubic-bezier(.32,.72,0,1);--cg:22px;
   background:var(--bg);color:#c9d1d9;border-radius:var(--r-panel);padding:22px 26px 18px;font-family:var(--font);font-size:13px;line-height:1.55;box-shadow:var(--sh-panel);overflow:hidden}
 .arch .ps,.arch .chip,.arch .pn,.arch .pv,.arch .log .t,.arch .wake,.arch .back span{font-family:var(--mono)}
 .arch .ps{color:var(--tx3);font-size:12px;margin-bottom:14px}.arch .ps b{color:var(--tx)}.arch .ps i{font-style:normal;color:var(--c-main)}
@@ -224,7 +225,7 @@ footer{margin:clamp(48px,8vw,80px) 0 40px;font-size:12px;color:var(--text-3);lin
 .arch .g-main{--gc:var(--c-main)}.arch .g-exec{--gc:var(--c-build)}.arch .g-gate{--gc:var(--c-check)}.arch .g-adv{--gc:var(--c-plan)}
 .arch .two{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
 .arch .stack{display:grid;gap:12px;margin-top:12px}
-.arch .cols{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--cg);align-items:stretch}
+.arch .cols{display:grid;grid-template-columns:calc((100% - var(--cg)) * var(--p)) minmax(0,1fr);gap:var(--cg);align-items:stretch}
 /* 顾问检查点 */
 .arch .cps{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:11px}
 .arch .cp{font-size:12px;color:var(--tx3);border:1px solid var(--ln);border-radius:999px;padding:2px 12px;transition:all .5s var(--sp)}
@@ -240,8 +241,8 @@ footer{margin:clamp(48px,8vw,80px) 0 40px;font-size:12px;color:var(--text-3);lin
 .arch .rl.on{border-color:color-mix(in srgb,var(--lc) 70%,transparent)}
 .arch .rl.on .rdot{opacity:1;box-shadow:0 0 0 3px color-mix(in srgb,var(--lc) 22%,transparent),0 0 10px var(--lc)}
 .arch .rl.on .st{color:var(--lc)}
-.arch .rl.off{border-style:dashed;opacity:.7}
-.arch .grp{display:grid;gap:7px;margin-top:8px}.arch .grp:empty{display:none}
+.arch .rl.off{border-style:dashed}
+.arch .grp{display:grid;gap:7px;margin-top:8px}.arch .idle-l{color:var(--tx3);font-size:12px}.arch .idle-l b{color:var(--tx2);font-weight:600}.arch .grp:empty{display:none}
 .arch .gl{display:grid;grid-template-columns:auto auto 1fr auto;gap:8px;align-items:center;min-width:0}
 .arch .src{font-size:11.5px;color:var(--tx2);white-space:nowrap}
 .arch .src::before{content:"";display:inline-block;width:6px;height:6px;border-radius:2px;background:var(--ch);margin-right:6px;vertical-align:1px}
@@ -258,9 +259,9 @@ footer{margin:clamp(48px,8vw,80px) 0 40px;font-size:12px;color:var(--text-3);lin
 .arch .fork{position:relative;height:44px}
 .arch .fork i{position:absolute;background:var(--ln);overflow:hidden;transition:background .5s}
 .arch .fork .a{left:calc(50% - 1px);width:2px;top:0;height:50%}
-.arch .fork .h{top:calc(50% - 1px);height:2px;left:calc((100% - var(--cg)) / 4);right:calc((100% - var(--cg)) / 4)}
+.arch .fork .h{top:calc(50% - 1px);height:2px;left:calc((100% - var(--cg)) * var(--p) / 2);right:calc((100% - var(--cg)) * (1 - var(--p)) / 2)}
 .arch .fork .l,.arch .fork .r{width:2px;top:50%;bottom:0}
-.arch .fork .l{left:calc((100% - var(--cg)) / 4 - 1px)}.arch .fork .r{right:calc((100% - var(--cg)) / 4 - 1px)}
+.arch .fork .l{left:calc((100% - var(--cg)) * var(--p) / 2 - 1px)}.arch .fork .r{right:calc((100% - var(--cg)) * (1 - var(--p)) / 2 - 1px)}
 .arch .join .a{top:50%;bottom:0;height:auto}.arch .join .l,.arch .join .r{top:0;bottom:50%}
 .arch .fork.live .a,.arch .fork.live .h{background:color-mix(in srgb,var(--c-main) 55%,transparent)}
 .arch .fork.lon .l{background:color-mix(in srgb,var(--c-build) 60%,transparent)}.arch .fork.ron .r{background:color-mix(in srgb,var(--c-check) 60%,transparent)}
@@ -293,7 +294,7 @@ footer{margin:clamp(48px,8vw,80px) 0 40px;font-size:12px;color:var(--text-3);lin
 @keyframes arch-fy{0%{transform:translateY(0)}100%{transform:translateY(calc(100% + 60px))}}
 @keyframes arch-fx{0%{transform:translateX(-50%) scaleX(.2);opacity:0}30%{opacity:.9}100%{transform:translateX(-50%) scaleX(1);opacity:0}}
 @media (prefers-reduced-motion:reduce){.arch *,.arch *::before,.arch *::after{animation:none!important;transition:none!important}}
-@media (max-width:860px){.arch{padding:18px 14px 14px}.arch .two{grid-template-columns:1fr}.arch .cols{grid-template-columns:1fr;gap:28px}
+@media (max-width:860px){.arch{padding:18px 14px 14px;--p:.5}.arch .cols{grid-template-columns:1fr!important}.arch .two{grid-template-columns:1fr}.arch .cols{grid-template-columns:1fr;gap:28px}
   .arch .cols .abox+.abox::after{content:"";position:absolute;left:calc(50% - 1px);top:-29px;height:28px;width:2px;background:var(--ln)}
   .arch .fork .h,.arch .fork .l,.arch .fork .r{display:none}.arch .fork{height:28px}.arch .fork .a{height:100%}.arch .join .a{top:0}
   .arch .log div{grid-template-columns:44px 1fr auto}.arch .log .src{display:none}.arch .pr{grid-template-columns:86px 1fr 42px}}
@@ -853,7 +854,10 @@ function renderArch(d) {
     for (const x of list) { const key = chanOf(x) + '|' + (x.model || '') + '|' + (x.effort || ''); (groups[key] = groups[key] || { key: k + '|' + key, ch: CHANNELS[chanOf(x)], model: x.model, effort: x.effort, n: 0, run: 0, wait: 0, last: 0, doing: '', items: [] }); const g = groups[key]; g.n++; g.run += x.run && !x.wait ? 1 : 0; g.wait += x.wait ? 1 : 0; g.items.push(x); if (x.last >= g.last) { g.last = x.last; g.doing = x.doing; } }
     const gs = Object.values(groups).sort((a, b) => b.run - a.run || b.n - a.n).slice(0, 4);
     for (const g of gs) archTips[g.key] = g;
-    archSet(`ar-${k}-g`, gs.map(g => `<div class="gl" data-tip="${esc(g.key)}"><span class="src" style="--ch:${g.ch.col}">${g.ch.short}</span>${chip(g.model, g.effort)}<span class="n">${g.n > 1 ? '×' + g.n : ''}</span><span class="s">${g.wait ? '<b class="wt">待批准</b>' : '<i class="spin"></i>'}</span>${g.doing ? `<div class="doing">${esc(g.doing)}</div>` : ''}</div>`).join(''));
+    const dayStart = new Date().setHours(0, 0, 0, 0) / 1000;
+    const past = norm.filter(x => x.role === k && !x.run && !x.wait && x.last >= dayStart), lastDone = Math.max(0, ...past.map(x => x.last));
+    const idleLine = `<div class="idle-l">${past.length ? `今天做过 <b>${past.length}</b> 次 · 最近 ${clock(lastDone)}` : '今天还没派到'}</div>`;
+    archSet(`ar-${k}-g`, gs.map(g => `<div class="gl" data-tip="${esc(g.key)}"><span class="src" style="--ch:${g.ch.col}">${g.ch.short}</span>${chip(g.model, g.effort)}<span class="n">${g.n > 1 ? '×' + g.n : ''}</span><span class="s">${g.wait ? '<b class="wt">待批准</b>' : '<i class="spin"></i>'}</span>${g.doing ? `<div class="doing">${esc(g.doing)}</div>` : ''}</div>`).join('') || idleLine);
     tog('ar-' + k, 'on', on); tog('ar-' + k, 'off', !list.length);
     archSet(`ar-${k}-st`, on ? `${on} 个在干` : '空闲');
   }
@@ -876,7 +880,9 @@ function renderArch(d) {
     tog('ar-g-' + g, 'on', n > 0);
     archSet(`ar-g-${g}-st`, n ? `${n} 个在干` : '空闲');
   }
-  const eOn = act.build + act.duty > 0, gOn = act.check + act.verify > 0;
+  const eN = act.build + act.duty, gN = act.check + act.verify;
+  const eOn = eN > 0, gOn = gN > 0;
+  $('#arch').style.setProperty('--p', eN === gN ? .5 : eN > gN ? (gN ? .58 : .66) : (eN ? .42 : .34));
   tog('ar-consult', 'live', advOn);
   for (const f of ['ar-fork', 'ar-join']) { tog(f, 'live', running > 0); tog(f, 'lon', eOn); tog(f, 'ron', gOn); }
   tog('ar-back', 'on', justDone);
