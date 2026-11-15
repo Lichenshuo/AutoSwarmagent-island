@@ -35,5 +35,17 @@
   },
   "dsh_credit": {
     "anthropic": 50
+  },
+  "arch_roles": {
+    "main": {
+      "name": "主 agent 会话的标题",
+      "model": "claude-opus-5-5",
+      "effort": "high"
+    },
+    "advisor": {
+      "name": "顾问会话的标题",
+      "model": "claude-fable-5-2",
+      "effort": "high"
+    }
   }
 }

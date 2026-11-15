@@ -2072,42 +2072,111 @@ def setup_items(claude, codex, dsh):
     return items
 
 
-def claude_main(window=900):
-    """The Claude main session: model of its latest reply, plus the advisor/model set in ~/.claude/settings.json if any. Never raises."""
+ARCH_ROLE_KEYS = ("main", "advisor")
+_title_cache = {}
+
+
+def _session_titles(path, st):
+    """(titles, last main-thread model) of one Claude session file; reads only its head and tail. Cached by mtime/size."""
+    hit = _title_cache.get(str(path))
+    if hit and hit[0] == (st.st_mtime, st.st_size):
+        return hit[1]
+    titles, model = [], None
     try:
-        out = {"model": None, "advisor": None, "active": False, "last_at": None}
-        cfg = read_json(HOME / ".claude" / "settings.json") or {}
-        if isinstance(cfg.get("model"), str):
-            out["model"] = cfg["model"]
-        for k in ("advisorModel", "advisor"):
-            if isinstance(cfg.get(k), str):
-                out["advisor"] = cfg[k]
-        best = None
-        for path in CLAUDE_PROJECTS.glob("*/*.jsonl"):
-            try:
-                st = path.stat()
-            except OSError:
-                continue
-            if best is None or st.st_mtime > best[0]:
-                best = (st.st_mtime, path, st.st_size)
-        if best:
-            out["last_at"], out["active"] = best[0], time.time() - best[0] < window
-            with open(best[1], "rb") as f:
-                f.seek(max(0, best[2] - 200_000))
-                tail = f.read().decode("utf-8", "replace").splitlines()
-            for line in reversed(tail):
-                if '"assistant"' not in line or '"isSidechain":true' in line.replace(" ", ""):
-                    continue
+        with open(path, "rb") as f:
+            head = f.read(131072)
+            f.seek(max(0, st.st_size - 400_000))
+            tail = f.read()
+        lines = head.decode("utf-8", "replace").splitlines() + tail.decode("utf-8", "replace").splitlines()
+        for line in lines:
+            if '"title"' in line or 'Title"' in line or '"summary"' in line:
                 try:
-                    m = (json.loads(line).get("message") or {}).get("model")
+                    o = json.loads(line)
                 except ValueError:
                     continue
-                if m and not str(m).startswith("<"):
-                    out["model"] = m
-                    break
-        return out
+                for k in ("customTitle", "title", "aiTitle", "sessionTitle"):
+                    if isinstance(o.get(k), str):
+                        titles.append(o[k].strip())
+                if o.get("type") == "summary" and isinstance(o.get("summary"), str):
+                    titles.append(o["summary"].strip())
+        for line in reversed(lines):
+            if '"assistant"' not in line or '"isSidechain":true' in line.replace(" ", ""):
+                continue
+            try:
+                m = (json.loads(line).get("message") or {}).get("model")
+            except ValueError:
+                continue
+            if m and not str(m).startswith("<"):
+                model = m
+                break
+    except OSError:
+        pass
+    out = ([t for t in dict.fromkeys(titles) if t], model)
+    _title_cache[str(path)] = ((st.st_mtime, st.st_size), out)
+    return out
+
+
+def _recent_sessions(window=14 * 86400):
+    now, rows = time.time(), []
+    for path in CLAUDE_PROJECTS.glob("*/*.jsonl"):
+        try:
+            st = path.stat()
+        except OSError:
+            continue
+        if now - st.st_mtime < window:
+            rows.append((st.st_mtime, path, st))
+    rows.sort(key=lambda r: r[0], reverse=True)
+    return rows[:200]
+
+
+def arch_sessions(active_within=180):
+    """Main agent and advisor as the user named them (config arch_roles), matched to Claude sessions by title. Never raises."""
+    cfg = (read_json(CONFIG_FILE) or {}).get("arch_roles") or {}
+    out = {}
+    try:
+        recent = _recent_sessions()
     except Exception:
-        return {"model": None, "advisor": None, "active": False, "last_at": None}
+        recent = []
+    for key in ARCH_ROLE_KEYS:
+        c = cfg.get(key) or {}
+        r = {"name": c.get("name"), "model": c.get("model"), "effort": c.get("effort"), "found": False, "active": False, "last_at": None, "session": None}
+        name = str(c.get("name") or "").strip()
+        if name:
+            for mtime, path, st in recent:
+                titles, model = _session_titles(path, st)
+                if any(name == t or name in t for t in titles):
+                    r.update(found=True, last_at=mtime, active=time.time() - mtime < active_within, session=path.stem)
+                    r["seen_model"] = model
+                    r["model"] = r["model"] or model
+                    break
+        out[key] = r
+    return out
+
+
+def arch_sessions_debug():
+    cfg = (read_json(CONFIG_FILE) or {}).get("arch_roles") or {}
+    print("配置：", json.dumps(cfg, ensure_ascii=False) if cfg else "还没设置（用 --arch-role 设置）")
+    print("最近的 Claude 会话（最新在前）：")
+    for mtime, path, st in _recent_sessions()[:20]:
+        titles, model = _session_titles(path, st)
+        when = datetime.fromtimestamp(mtime).strftime("%m-%d %H:%M")
+        print(f"  {when}  {path.parent.name[:40]:40}  {path.stem[:8]}  模型={model or '-'}  标题={' | '.join(titles[:3]) or '（没读到标题）'}")
+    print("匹配结果：", json.dumps(arch_sessions(), ensure_ascii=False))
+    return 0
+
+
+def set_arch_role(vals):
+    key, rest = vals[0], vals[1:]
+    if key not in ARCH_ROLE_KEYS or not rest:
+        print("用法：--arch-role main|advisor 会话名 [模型 [思考强度]]")
+        return 1
+    config = read_json(CONFIG_FILE) or {}
+    config.setdefault("arch_roles", {})[key] = {"name": rest[0], "model": rest[1] if len(rest) > 1 else None, "effort": rest[2] if len(rest) > 2 else None}
+    tmp = CONFIG_FILE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(tmp, CONFIG_FILE)
+    print("已保存：", json.dumps(config["arch_roles"][key], ensure_ascii=False))
+    return 0
 
 
 def model_price_list(models):
@@ -2137,8 +2206,8 @@ def snapshot():
     today = local_day(time.time())
     real = [c for c in calls if not c["probe"]]
     claude_now, dsh_now = cached("claude", 10, claude_snapshot), cached("dsh", 20, dsh_snapshot)
-    deleg, csub, cmain = delegation_summary(calls), cached("claude-subagents", 10, claude_subagents), cached("claude-main", 10, claude_main)
-    seen_models = [cmain.get("model"), cmain.get("advisor")] + [a.get("model") for a in csub] + [a.get("model") for a in deleg.get("agents", [])]
+    deleg, csub, arch = delegation_summary(calls), cached("claude-subagents", 10, claude_subagents), cached("arch-sessions", 10, arch_sessions)
+    seen_models = [arch["main"].get("model"), arch["advisor"].get("model")] + [a.get("model") for a in csub] + [a.get("model") for a in deleg.get("agents", [])]
     return {
         "generated_at": time.time(),
         "setup": setup_items(claude_now, codex_limits, dsh_now),
@@ -2150,7 +2219,7 @@ def snapshot():
         "restart_needed": restart_needed(),
         "delegation": deleg,
         "claude_agents": csub,
-        "claude_main": cmain,
+        "arch_roles": arch,
         "model_prices": model_price_list(seen_models),
         "dsh": dsh_now,
         "summary": {
@@ -2424,6 +2493,9 @@ def main():
                         help="everything ever credited to DeepSeek (top-ups + grants), to show an exact used amount")
     parser.add_argument("--currency", default=None, help="with --dsh-price: currency the prices are in")
     parser.add_argument("--codex-calls", action="store_true", help="show, per Codex dispatch, the recorded fields and whether it is filed under Codex desktop or Codex API")
+    parser.add_argument("--arch-role", nargs="+", metavar="VALUE",
+                        help="name the main agent / advisor session for the architecture view: main|advisor NAME [MODEL [EFFORT]]")
+    parser.add_argument("--arch-sessions", action="store_true", help="list recent Claude sessions with their titles and which one matches main/advisor")
     parser.add_argument("--dsh-calls", action="store_true", help="show, per DSH dispatch, the model/effort AutoSwarm recorded vs what the session shows")
     parser.add_argument("--find-desktop", action="store_true",
                         help="search this PC for Claude Desktop's usage file and remember where it is")
@@ -2440,6 +2512,10 @@ def main():
         return quota_debug()
     if args.find_desktop:
         return find_desktop()
+    if args.arch_role:
+        return set_arch_role(args.arch_role)
+    if args.arch_sessions:
+        return arch_sessions_debug()
     if args.dsh_calls:
         return dsh_calls_debug()
     if args.codex_calls:
