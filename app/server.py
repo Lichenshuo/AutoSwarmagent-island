@@ -2072,6 +2072,59 @@ def setup_items(claude, codex, dsh):
     return items
 
 
+def claude_main(window=900):
+    """The Claude main session: model of its latest reply, plus the advisor/model set in ~/.claude/settings.json if any. Never raises."""
+    try:
+        out = {"model": None, "advisor": None, "active": False, "last_at": None}
+        cfg = read_json(HOME / ".claude" / "settings.json") or {}
+        if isinstance(cfg.get("model"), str):
+            out["model"] = cfg["model"]
+        for k in ("advisorModel", "advisor"):
+            if isinstance(cfg.get(k), str):
+                out["advisor"] = cfg[k]
+        best = None
+        for path in CLAUDE_PROJECTS.glob("*/*.jsonl"):
+            try:
+                st = path.stat()
+            except OSError:
+                continue
+            if best is None or st.st_mtime > best[0]:
+                best = (st.st_mtime, path, st.st_size)
+        if best:
+            out["last_at"], out["active"] = best[0], time.time() - best[0] < window
+            with open(best[1], "rb") as f:
+                f.seek(max(0, best[2] - 200_000))
+                tail = f.read().decode("utf-8", "replace").splitlines()
+            for line in reversed(tail):
+                if '"assistant"' not in line or '"isSidechain":true' in line.replace(" ", ""):
+                    continue
+                try:
+                    m = (json.loads(line).get("message") or {}).get("model")
+                except ValueError:
+                    continue
+                if m and not str(m).startswith("<"):
+                    out["model"] = m
+                    break
+        return out
+    except Exception:
+        return {"model": None, "advisor": None, "active": False, "last_at": None}
+
+
+def model_price_list(models):
+    """Output price per 1M tokens for each distinct model name, cheapest last; models without a known price are left out."""
+    seen, rows = set(), []
+    for m in models:
+        m = str(m or "")
+        short = m.split("/", 1)[-1]
+        if not short or short in seen:
+            continue
+        seen.add(short)
+        price, _ = price_for(short, None)
+        if price:
+            rows.append({"model": short, "output": price.get("output", price["input"])})
+    return sorted(rows, key=lambda r: -r["output"])
+
+
 def snapshot():
     # Quotas and spend change slowly; delegation state is read fresh every time.
     codex_sessions, codex_limits = cached("codex", 20, codex_snapshot)
@@ -2084,6 +2137,8 @@ def snapshot():
     today = local_day(time.time())
     real = [c for c in calls if not c["probe"]]
     claude_now, dsh_now = cached("claude", 10, claude_snapshot), cached("dsh", 20, dsh_snapshot)
+    deleg, csub, cmain = delegation_summary(calls), cached("claude-subagents", 10, claude_subagents), cached("claude-main", 10, claude_main)
+    seen_models = [cmain.get("model"), cmain.get("advisor")] + [a.get("model") for a in csub] + [a.get("model") for a in deleg.get("agents", [])]
     return {
         "generated_at": time.time(),
         "setup": setup_items(claude_now, codex_limits, dsh_now),
@@ -2093,8 +2148,10 @@ def snapshot():
         "calls": calls,
         "dismissed": sorted(dismissed),
         "restart_needed": restart_needed(),
-        "delegation": delegation_summary(calls),
-        "claude_agents": cached("claude-subagents", 10, claude_subagents),
+        "delegation": deleg,
+        "claude_agents": csub,
+        "claude_main": cmain,
+        "model_prices": model_price_list(seen_models),
         "dsh": dsh_now,
         "summary": {
             "calls_today": sum(1 for c in real if c["created_at"] and local_day(c["created_at"]) == today),
