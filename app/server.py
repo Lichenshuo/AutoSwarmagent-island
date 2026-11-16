@@ -1282,7 +1282,8 @@ def _approval_summary(native):
     return _approval_summary(params) if params else None
 
 
-def _inspect_all():
+def _inspect_all(frozen=None):
+    """(task, inspection) for every call. A call listed in `frozen` is not inspected again: its inspection comes back as None."""
     if Records is None:
         return
     seen = set()
@@ -1294,6 +1295,9 @@ def _inspect_all():
             if task["call_id"] in seen:
                 continue
             seen.add(task["call_id"])
+            if frozen is not None and task["call_id"] in frozen:
+                yield task, None
+                continue
             try:
                 yield task, swarm_engine.inspect_call(records, task["call_id"])
             except Exception as exc:
@@ -1707,9 +1711,15 @@ def dsh_snapshot():
     return out
 
 
+_call_frozen = {}        # call_id -> its finished call record; a call that ended a while ago never changes
+
+
 def calls_snapshot(codex_sessions, opencode_sessions):
     calls = []
-    for task, info in _inspect_all():
+    for task, info in _inspect_all(_call_frozen):
+        if info is None:
+            calls.append(_call_frozen[task["call_id"]])
+            continue
         result = info.get("result")
         approvals = info.get("approvals") or []
         if info["state"] == "returned":
@@ -1788,6 +1798,9 @@ def calls_snapshot(codex_sessions, opencode_sessions):
                            "summary": _approval_summary(a.get("native_request"))} for a in approvals],
             "probe": "AUTOSWARM_CHECK_" in (task.get("prompt") or ""),
         })
+        done = calls[-1]
+        if done["finished_at"] and done["state"] in ("completed", "failed", "cancelled") and time.time() - done["finished_at"] > 900 and not done["approvals"]:
+            _call_frozen[done["call_id"]] = done
     calls.sort(key=lambda c: c["created_at"] or 0)
     rounds = {}
     probes = {c["agent_id"] for c in calls if c["probe"]}
@@ -1811,6 +1824,7 @@ _ttl_lock = threading.Lock()
 
 
 _ttl_refreshing = set()
+_ttl_keylocks = {}
 
 
 def _ttl_refresh(key, fn):
@@ -1837,10 +1851,17 @@ def cached(key, ttl, fn):
                 _ttl_refreshing.add(key)
                 threading.Thread(target=_ttl_refresh, args=(key, fn), daemon=True).start()
             return hit[1]
-    value = fn()
     with _ttl_lock:
-        _ttl_cache[key] = (time.time(), value)
-    return value
+        klock = _ttl_keylocks.setdefault(key, threading.Lock())
+    with klock:                          # several first requests (and the warm-up) wait for one computation, not each run their own
+        with _ttl_lock:
+            hit = _ttl_cache.get(key)
+            if hit and time.time() - hit[0] < ttl:
+                return hit[1]
+        value = fn()
+        with _ttl_lock:
+            _ttl_cache[key] = (time.time(), value)
+        return value
 
 
 BAD_STATES = ("failed", "lost", "cancelled", "unknown")
@@ -1935,31 +1956,50 @@ def _tool_brief(name, inp):
     return _TOOL_VERB.get(name, name or "工具") + (" " + _short(arg, 60) if arg else "")
 
 
+_roles_cache = {}
+
+
 def _csub_parent_roles(session_file):
-    """agentId → {role, description} read from the parent session: the Agent/Task tool call that spawned each sub-agent."""
-    out, uses = {}, {}
+    """agentId → the Agent/Task tool call that spawned each sub-agent, read from the parent session.
+    That file is large and grows all the time, so only the bytes added since the last call are read."""
+    key = str(session_file)
+    st = _roles_cache.get(key)
     try:
-        with open(session_file, "r", encoding="utf-8", errors="ignore") as fh:
-            for line in fh:
-                if "agentId" not in line and '"Agent"' not in line and '"Task"' not in line:
-                    continue
-                try:
-                    row = json.loads(line)
-                except ValueError:
-                    continue
-                content = (row.get("message") or {}).get("content")
-                for b in content if isinstance(content, list) else []:
-                    if b.get("type") == "tool_use" and b.get("name") in ("Agent", "Task") and isinstance(b.get("input"), dict):
-                        uses[b.get("id")] = b["input"]
-                        out["prompt:" + str(b["input"].get("prompt") or "").strip()[:300]] = b["input"]
-                    elif b.get("type") == "tool_result":
-                        res = row.get("toolUseResult")
-                        aid = res.get("agentId") if isinstance(res, dict) else None
-                        if aid and b.get("tool_use_id") in uses:
-                            out[aid] = uses[b["tool_use_id"]]
+        size = os.path.getsize(session_file)
     except OSError:
-        pass
-    return out
+        return {}
+    if not st or size < st["off"]:
+        st = _roles_cache[key] = {"off": 0, "uses": {}, "out": {}}
+    if size > st["off"]:
+        try:
+            with open(session_file, "rb") as fh:
+                fh.seek(st["off"])
+                data = fh.read(size - st["off"])
+        except OSError:
+            return st["out"]
+        cut = data.rfind(b"\n") + 1            # leave a half-written last line for next time
+        st["off"] += cut
+        uses, out = st["uses"], st["out"]
+        for raw in data[:cut].split(b"\n"):
+            if b"agentId" not in raw and b'"Agent"' not in raw and b'"Task"' not in raw:
+                continue
+            try:
+                row = json.loads(raw)
+            except ValueError:
+                continue
+            content = (row.get("message") or {}).get("content")
+            for blk in content if isinstance(content, list) else []:
+                if not isinstance(blk, dict):
+                    continue
+                if blk.get("type") == "tool_use" and blk.get("name") in ("Agent", "Task") and isinstance(blk.get("input"), dict):
+                    uses[blk.get("id")] = blk["input"]
+                    out["prompt:" + str(blk["input"].get("prompt") or "").strip()[:300]] = blk["input"]
+                elif blk.get("type") == "tool_result":
+                    res = row.get("toolUseResult")
+                    aid = res.get("agentId") if isinstance(res, dict) else None
+                    if aid and blk.get("tool_use_id") in uses:
+                        out[aid] = uses[blk["tool_use_id"]]
+    return st["out"]
 
 
 def _csub_scan(path):
@@ -2282,7 +2322,9 @@ def time_snapshot():
     codex_sessions, _ = codex_snapshot()
     api_ev, oc = api_snapshot()
     t = time.time(); calls = calls_snapshot(codex_sessions, oc); print(f"{'派活记录（' + str(len(calls)) + ' 条）':<20}{time.time() - t:6.2f}s")
-    t = time.time(); snapshot(); print(f"{'整份数据（第二次）':<20}{time.time() - t:6.2f}s")
+    for label in ("整份数据（第一次）", "整份数据（第二次）", "整份数据（第三次）"):
+        t = time.time(); snapshot(); print(f"{label:<20}{time.time() - t:6.2f}s")
+        time.sleep(3)          # past the short caches, so the next one shows what a normal refresh costs
 
 
 def snapshot(fresh=False):
