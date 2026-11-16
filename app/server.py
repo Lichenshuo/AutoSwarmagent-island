@@ -2206,7 +2206,7 @@ def snapshot():
     today = local_day(time.time())
     real = [c for c in calls if not c["probe"]]
     claude_now, dsh_now = cached("claude", 10, claude_snapshot), cached("dsh", 20, dsh_snapshot)
-    deleg, csub, arch = delegation_summary(calls), cached("claude-subagents", 10, claude_subagents), cached("arch-sessions", 10, arch_sessions)
+    deleg, csub, arch = delegation_summary(calls), cached("claude-subagents", 3, claude_subagents), cached("arch-sessions", 5, arch_sessions)
     seen_models = [arch["main"].get("model"), arch["advisor"].get("model")] + [a.get("model") for a in csub] + [a.get("model") for a in deleg.get("agents", [])]
     return {
         "generated_at": time.time(),

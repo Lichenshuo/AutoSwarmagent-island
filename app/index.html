@@ -954,7 +954,7 @@ function render() {
   renderArch(d);
   renderCalls(d);
   renderSessions(d);
-  $('#updated').textContent = '更新于 ' + clock(d.generated_at);
+  $('#updated').textContent = '更新于 ' + new Date(d.generated_at * 1000).toLocaleTimeString('zh-CN', { hour12: false });
 }
 
 async function load() {
@@ -1113,7 +1113,11 @@ const nav = $('#nav');
 addEventListener('scroll', () => nav.classList.toggle('scrolled', scrollY > 8), { passive: true });
 
 load();
-(function poll() { const busy = (state.data?.calls || []).some(c => ['running', 'waiting'].includes(c.state)) || (state.data?.claude_agents || []).some(a => a.state === 'running'); setTimeout(() => load().finally(poll), busy ? 5000 : 15000); })();
+/* 和灵动岛一样每 3 秒取一次；页面切到后台时放慢，切回来立刻刷新 */
+let pollT = 0;
+function poll() { clearTimeout(pollT); pollT = setTimeout(() => load().finally(poll), document.hidden ? 15000 : 3000); }
+document.addEventListener('visibilitychange', () => { if (!document.hidden) load().finally(poll); });
+poll();
 </script>
 </body>
 </html>
