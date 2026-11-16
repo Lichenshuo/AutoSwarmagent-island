@@ -249,6 +249,14 @@ footer{margin:clamp(48px,8vw,80px) 0 40px;font-size:12px;color:var(--text-3);lin
 .arch .gl .n{color:var(--tx3);font-size:11.5px}
 .arch .gl .s{display:flex;align-items:center;gap:5px;font-size:11.5px;color:var(--lc)}
 .arch .gl .ok{color:#3fb950;font-weight:400}.arch .gl .bad{color:#f85149;font-weight:400}
+.arch .gl .ags{grid-column:1/-1;display:flex;flex-direction:column;gap:5px;padding-left:12px;border-left:1px solid color-mix(in srgb,var(--lc) 45%,transparent);min-width:0}
+.arch .ag{min-width:0}
+.arch .ag .at{display:flex;gap:8px;align-items:baseline;min-width:0;font-size:12.5px;line-height:1.45}
+.arch .ag .at b{color:var(--tx);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:62%;flex:none}
+.arch .ag .at span{color:var(--tx2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.arch .ag .an{color:var(--tx3);font-size:11.5px;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.arch .ag .an::before{content:"› ";color:var(--lc)}
+.arch .gl .more{color:var(--tx3);font-size:11.5px}
 .arch .gl .doing{grid-column:1/-1;color:var(--tx2);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-left:12px;border-left:1px solid color-mix(in srgb,var(--lc) 45%,transparent)}
 .arch .spin{width:10px;height:10px;border-radius:50%;border:1.5px solid color-mix(in srgb,var(--lc) 30%,transparent);border-top-color:var(--lc);animation:arch-spin .9s linear infinite}
 /* 连线：竖线和分叉都是独立的整块元素，在文档流里首尾相接 */
@@ -849,7 +857,7 @@ function renderArch(d) {
   for (const a of agents) {
     const c = lastCall[a.key] || {}, run = a.running > 0 || ['running', 'waiting'].includes(a.last_state);
     const raw = String(a.model || ''), vendor = raw.includes('/') ? raw.split('/')[0] : (a.provider === 'dsh' ? 'deepseek' : '');
-    const x = { lane: a.provider, vendor, route: a.route, name: a.name || '', task: _firstLine(a.last_task), model: raw.includes('/') ? raw.split('/').slice(1).join('/') : raw, effort: a.effort,
+    const x = { lane: a.provider, vendor, route: a.route, name: a.name || '', task: a.last_task || '', model: raw.includes('/') ? raw.split('/').slice(1).join('/') : raw, effort: a.effort,
       bad: ['failed', 'lost', 'cancelled'].includes(a.last_state), wait: a.last_state === 'waiting', last: a.last_at || 0, run: run ? 1 : 0, tokens: a.tokens || 0, tag: '',
       doing: run ? (c.activity?.text || _firstLine(a.last_task)) : '' };
     x.role = roleOf(x); norm.push(x);
@@ -872,14 +880,18 @@ function renderArch(d) {
     const groups = {};
     for (const x of list) { const key = chanOf(x) + '|' + (x.model || '') + '|' + (x.effort || ''); (groups[key] = groups[key] || { key: k + '|' + key, ch: CHANNELS[chanOf(x)], model: x.model, effort: x.effort, n: 0, run: 0, wait: 0, last: 0, doing: '', items: [] }); const g = groups[key]; g.n++; g.run += x.run && !x.wait ? 1 : 0; g.wait += x.wait ? 1 : 0; g.items.push(x); if (x.last >= g.last) { g.last = x.last; g.doing = x.doing; } }
     const gs = Object.values(groups).sort((a, b) => b.run - a.run || b.n - a.n).slice(0, 4);
-    const row = x => `<div class="ti"><b>${esc(x.name || '子 agent')}</b><span>${esc(CHANNELS[chanOf(x)].short)} · ${esc(prettyModel(x.model) || '模型未知')}${x.effort ? ' ' + esc(x.effort) : ''} · ${x.run ? (x.wait ? '待批准' : '进行中') : x.bad ? '失败' : '完成'} · ${agoS(x.last)} · ${tokens(x.tokens)} token</span>${x.doing || x.task ? `<p>${esc(x.doing || x.task)}</p>` : ''}</div>`;
+    const row = x => `<div class="ti"><b>${esc(x.name || x.task || '子 agent')}</b><span>${esc(CHANNELS[chanOf(x)].short)} · ${esc(prettyModel(x.model) || '模型未知')}${x.effort ? ' ' + esc(x.effort) : ''} · ${x.run ? (x.wait ? '待批准' : '进行中') : x.bad ? '失败' : '完成'} · ${agoS(x.last)} · ${tokens(x.tokens)} token</span>${x.doing || x.task ? `<p>${esc(x.doing || x.task)}</p>` : ''}</div>`;
     for (const g of gs) archTips[g.key] = `<div class="th">${esc(g.ch.short)} ${chip(g.model, g.effort)}</div>` + g.items.slice(0, 6).map(row).join('') + (g.items.length > 6 ? `<div class="ti"><span>还有 ${g.items.length - 6} 个</span></div>` : '');
     const hist = norm.filter(x => x.role === k).sort((a, b) => b.last - a.last).slice(0, 6);
     archTips['role:' + k] = `<div class="th">${ROLES[k].name}<span class="tsub">${on ? on + ' 个在干' : '空闲'}</span></div>` + (hist.length ? hist.map(row).join('') : '<div class="ti"><span>最近两天没有派到这一类活</span></div>');
     const dayStart = new Date().setHours(0, 0, 0, 0) / 1000;
     const past = norm.filter(x => x.role === k && !x.run && !x.wait && x.last >= dayStart), lastDone = Math.max(0, ...past.map(x => x.last));
     const idleLine = `<div class="idle-l">${past.length ? `今天做过 <b>${past.length}</b> 次 · 最近 ${clock(lastDone)}` : '今天还没派到'}</div>`;
-    archSet(`ar-${k}-g`, gs.map(g => `<div class="gl" data-tip="${esc(g.key)}"><span class="src" style="--ch:${g.ch.col}">${g.ch.short}</span>${chip(g.model, g.effort)}<span class="n">${g.n > 1 ? '×' + g.n : ''}</span><span class="s">${g.wait ? '<b class="wt">待批准</b>' : '<i class="spin"></i>'}</span>${g.doing ? `<div class="doing">${esc(g.doing)}</div>` : ''}</div>`).join('') || idleLine);
+    /* 每个在干的 agent 单独一行：名字（Claude 子 agent 是派活时写的描述）+ 任务，下面一行是此刻在做的动作 */
+    const agLine = x => { const title = x.name || x.task || '子 agent', task = x.name && x.task && x.task !== x.name ? x.task : '', now = x.doing && x.doing !== x.task && x.doing !== x.name ? x.doing : '';
+      return `<div class="ag"><div class="at"><b>${esc(title)}</b>${task ? `<span>${esc(task)}</span>` : ''}</div>${now ? `<div class="an">${esc(now)}</div>` : ''}</div>`; };
+    archSet(`ar-${k}-g`, gs.map(g => { const items = g.items.slice().sort((a, b) => b.last - a.last);
+      return `<div class="gl" data-tip="${esc(g.key)}"><span class="src" style="--ch:${g.ch.col}">${g.ch.short}</span>${chip(g.model, g.effort)}<span class="n">${g.n > 1 ? '×' + g.n : ''}</span><span class="s">${g.wait ? '<b class="wt">待批准</b>' : '<i class="spin"></i>'}</span><div class="ags">${items.slice(0, 3).map(agLine).join('')}${items.length > 3 ? `<div class="more">还有 ${items.length - 3} 个，鼠标停这里看</div>` : ''}</div></div>`; }).join('') || idleLine);
     tog('ar-' + k, 'on', on); tog('ar-' + k, 'off', !list.length);
     archSet(`ar-${k}-st`, on ? `${on} 个在干` : '空闲');
   }

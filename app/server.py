@@ -187,9 +187,18 @@ def counter_days(events, idx=1):
 
 
 def parse_codex_file(path):
-    info = {"id": None, "cwd": None, "originator": None, "tokens": None, "rate": None, "rate_ts": 0, "events": []}
+    info = {"id": None, "cwd": None, "originator": None, "tokens": None, "rate": None, "rate_ts": 0, "events": [], "model": None, "effort": None}
     with open(path, "rb") as fh:
         for raw in fh:
+            if b'"turn_context"' in raw:
+                try:
+                    p = json.loads(raw).get("payload") or {}
+                    cm = ((p.get("collaboration_mode") or {}).get("settings") or {}) if isinstance(p.get("collaboration_mode"), dict) else {}
+                    info["model"] = p.get("model") or cm.get("model") or info["model"]
+                    info["effort"] = p.get("effort") or p.get("reasoning_effort") or cm.get("reasoning_effort") or info["effort"]
+                except Exception:
+                    pass
+                continue
             if b'"session_meta"' in raw and info["id"] is None:
                 try:
                     p = json.loads(raw)["payload"]
@@ -1735,6 +1744,8 @@ def calls_snapshot(codex_sessions, opencode_sessions):
         model_raw, effort_raw, route = task.get("model") or selection.get("model"), task.get("effort") or selection.get("variant"), None
         if task["provider"] == "codex":
             route = codex_route(task)
+            sess = codex_sessions.get(session) or {}
+            model_raw, effort_raw = model_raw or sess.get("model"), effort_raw or sess.get("effort")   # Codex default model: read from its session file
         if task["provider"] == "dsh":
             wp, wm, we = dsh_call_config(dsh, created, finished)      # what DSH really ran for this call
             prov, model_raw, eff = dsh_model(model_raw, dsh)
@@ -1846,6 +1857,18 @@ def codex_tokens(codex_sessions):
     return {"tokens_today": days.get(today, 0), "tokens_week": sum(n for d, n in days.items() if d in week)}
 
 
+_META_LINE = re.compile(r"^(model|effort|provider|route|cwd|workspace|role|name|agent|reasoning|variant|temperature|模型|思考|角色)\s*[:=：]", re.I)
+
+
+def _task_line(text, limit=90):
+    """The first line that says what the task is: skips "model: …" style headers and markdown marks."""
+    for line in (text or "").lstrip("\ufeff").splitlines():
+        line = re.sub(r"^[#>*\-\s]+|\*\*", "", line).strip()
+        if line and not _META_LINE.match(line) and not re.fullmatch(r"[-=_`~\s]+", line):
+            return line if len(line) <= limit else line[:limit] + "…"
+    return _first_line(text, limit)
+
+
 def _first_line(text, limit=90):
     for line in (text or "").lstrip("\ufeff").splitlines():
         if line.strip():
@@ -1858,10 +1881,24 @@ def _first_line(text, limit=90):
 _csub_cache = {}
 
 
+_TOOL_VERB = {"Bash": "跑命令", "PowerShell": "跑命令", "Read": "读", "Edit": "改", "MultiEdit": "改", "Write": "写", "NotebookEdit": "改",
+              "Grep": "搜", "Glob": "找文件", "WebFetch": "看网页", "WebSearch": "搜网页", "Agent": "派子 agent", "Task": "派子 agent",
+              "TodoWrite": "列待办", "TaskCreate": "列待办", "TaskUpdate": "更新待办"}
+_TOOL_QUIET = {"SubagentHandback": "整理结果回报", "StructuredOutput": "整理结果回报", "ToolSearch": "加载工具"}
+
+
 def _tool_brief(name, inp):
     inp = inp if isinstance(inp, dict) else {}
-    arg = inp.get("file_path") or inp.get("path") or inp.get("command") or inp.get("pattern") or inp.get("query") or inp.get("url") or inp.get("description") or ""
-    return (name or "工具") + (" " + _short(os.path.basename(arg) if inp.get("file_path") or inp.get("path") else arg, 60) if arg else "")
+    if name in _TOOL_QUIET:
+        return _TOOL_QUIET[name]
+    if name in ("Agent", "Task"):
+        arg = inp.get("description") or ""
+    elif inp.get("file_path"):
+        arg = os.path.basename(str(inp["file_path"]).rstrip("/\\"))
+    else:
+        arg = inp.get("command") or inp.get("pattern") or inp.get("query") or inp.get("url") or \
+            os.path.basename(str(inp.get("path") or "").rstrip("/\\")) or inp.get("description") or ""
+    return _TOOL_VERB.get(name, name or "工具") + (" " + _short(arg, 60) if arg else "")
 
 
 def _csub_parent_roles(session_file):
@@ -1880,6 +1917,7 @@ def _csub_parent_roles(session_file):
                 for b in content if isinstance(content, list) else []:
                     if b.get("type") == "tool_use" and b.get("name") in ("Agent", "Task") and isinstance(b.get("input"), dict):
                         uses[b.get("id")] = b["input"]
+                        out["prompt:" + str(b["input"].get("prompt") or "").strip()[:300]] = b["input"]
                     elif b.get("type") == "tool_result":
                         res = row.get("toolUseResult")
                         aid = res.get("agentId") if isinstance(res, dict) else None
@@ -1915,7 +1953,7 @@ def _csub_scan(path):
                     for b in content if isinstance(content, list) else []:
                         if b.get("type") == "tool_use":
                             n_tool += 1
-                            last_act = {"text": "运行 " + _tool_brief(b.get("name"), b.get("input")), "at": ts}
+                            last_act = {"text": _tool_brief(b.get("name"), b.get("input")), "at": ts}
                         elif b.get("type") == "text" and (b.get("text") or "").strip():
                             last_act = {"text": "回复：" + _short(b["text"].strip(), 80), "at": ts}
                         elif b.get("type") == "thinking":
@@ -1955,9 +1993,11 @@ def claude_subagents(window=2 * 86400, limit=40, running_within=120):
             spec = roles[str(session_file)].get(aid) or {}
             meta = read_json(path.with_suffix(".meta.json")) or {}
             role = spec.get("subagent_type") or meta.get("agentType") or "子 agent"
-            desc = spec.get("description") or meta.get("description") or _first_line(info["prompt"], 60)
+            if not spec:      # still running: the parent has no tool_result yet, so match the Agent call by its prompt
+                spec = roles[str(session_file)].get("prompt:" + (info["prompt"] or "").strip()[:300]) or {}
+            desc = spec.get("description") or meta.get("description") or _task_line(info["prompt"], 60)
             idle = now - mtime
-            out.append({"id": aid, "role": role, "name": desc, "task": _first_line(info["prompt"], 90), "model": info["model"],
+            out.append({"id": aid, "role": role, "name": desc, "task": _task_line(info["prompt"], 90), "model": info["model"],
                         "tokens": info["tokens"], "tools": info["tools"], "state": "running" if idle < running_within else "completed",
                         "started_at": info["first_ts"], "last_at": info["last_ts"] or mtime, "activity": info["activity"] if idle < running_within else None,
                         "project": session_dir.parent.name, "session": session_dir.name})
@@ -1983,7 +2023,7 @@ def delegation_summary(calls):
         u = c.get("usage") or {}
         a["rounds"] += 1
         a["model"], a["effort"], a["route"] = c["model"] or a["model"], c["effort"] or a["effort"], c.get("route") or a["route"]
-        a["last_at"], a["last_state"], a["last_task"] = c["created_at"], c["state"], _first_line(c["prompt"])
+        a["last_at"], a["last_state"], a["last_task"] = c["created_at"], c["state"], _task_line(c["prompt"])
         if c["state"] == "completed":
             a["completed"] += 1
         elif c["state"] in BAD_STATES:
