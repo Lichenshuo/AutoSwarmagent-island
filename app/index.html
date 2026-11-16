@@ -410,7 +410,8 @@ footer{margin:clamp(48px,8vw,80px) 0 40px;font-size:12px;color:var(--text-3);lin
       <p><span id="cal-where">打开对应平台的账单页</span>，把上面显示的数字填进来。每次校准都会用"实际花掉的钱 ÷ 本地记录到的花费"自动更新修正系数，之后的估算会越来越准。</p>
       <label>当前余额（Credit balance，美元）<input id="cal-balance" type="number" step="0.01" min="0" required inputmode="decimal" placeholder="例如 5.00"></label>
       <label>本月已用（可选，Usage 页的本月花费）<input id="cal-month" type="number" step="0.01" min="0" inputmode="decimal" placeholder="留空则自动推算"></label>
-      <label>累计充值总额（可选，用于计算剩余比例）<input id="cal-total" type="number" step="0.01" min="0" inputmode="decimal" placeholder="例如 200"></label>
+      <label>每次充值的金额（圆环的"满圆" = 这一笔；可选）<input id="cal-recharge" type="number" step="0.01" min="0" inputmode="decimal" placeholder="例如 50，填 0 清除"></label>
+      <label>累计充值总额（显示在灵动岛圆环下面；可选）<input id="cal-total" type="number" step="0.01" min="0" inputmode="decimal" placeholder="例如 200"></label>
       <div class="msg num" id="cal-msg"></div>
       <div class="act"><button class="pill-btn" value="cancel" formnovalidate>取消</button><button class="pill-btn primary" id="cal-save" value="save">保存</button></div>
     </form>
@@ -426,7 +427,8 @@ footer{margin:clamp(48px,8vw,80px) 0 40px;font-size:12px;color:var(--text-3);lin
       <label>缓存写入价（可选）<input id="dshd-cw" type="number" step="0.0001" min="0" inputmode="decimal"></label>
       <label>币种<select id="dshd-cur"><option value="CNY">人民币 ¥</option><option value="USD">美元 $</option></select></label>
       <p id="dshd-link" hidden style="margin-top:12px">累计充值额可以在 <a href="https://platform.deepseek.com/top_up" target="_blank" rel="noopener">DeepSeek 平台充值页</a> 查看（打不开就从平台左侧菜单找「充值」）。</p>
-      <label>累计充值总额（可选，用来算已使用 / 剩余）<input id="dshd-credit" type="number" step="0.01" min="0" inputmode="decimal" placeholder="充值加赠送的总额"></label>
+      <label>每次充值的金额（圆环的"满圆" = 这一笔；可选）<input id="dshd-recharge" type="number" step="0.01" min="0" inputmode="decimal" placeholder="例如 100，填 0 清除"></label>
+      <label>累计充值总额（显示在灵动岛圆环下面，也用来算已使用 / 剩余）<input id="dshd-credit" type="number" step="0.01" min="0" inputmode="decimal" placeholder="充值加赠送的总额"></label>
       <div class="msg num" id="dshd-msg"></div>
       <div class="act"><button class="pill-btn" value="cancel" formnovalidate>取消</button><button class="pill-btn primary" id="dshd-save" value="save">保存</button></div>
     </form>
@@ -601,7 +603,7 @@ function renderDsh(d) {
         `账户余额${r.remaining_pct != null ? ' · 剩余 ' + r.remaining_pct + '%' : ''}（赠送 ${money(r.granted, r.currency)} · 充值 ${money(r.topped_up, r.currency)}）${bal.available === false ? ' · <span class="warn-text">余额不足，API 暂不可用</span>' : ''}`,
         [[r.used_source === 'total' ? `已使用（累计充值 ${money(r.credit_total, r.currency)}）` : `已使用（${r.since ? dayLabel(r.since) + '起' : '自开始记录'}）`, money(r.used, r.currency)],
          ...(dsApi ? dshTokRows(dsApi) : [])],
-        r.used_source === 'total' ? `余额来自 DeepSeek 官方接口 · 充值后会自动累加；也可 <button class="link-btn" data-dshprice="deepseek">手动改累计充值额</button>` : `已使用按余额下降累计 <button class="link-btn" data-dshprice="deepseek">填累计充值额，更精确</button>`));
+        r.used_source === 'total' ? `余额来自 DeepSeek 官方接口 · 充值后会自动累加；也可 <button class="link-btn" data-dshprice="deepseek">填 / 改充值金额</button>` : `已使用按余额下降累计 <button class="link-btn" data-dshprice="deepseek">填充值金额，更精确</button>`));
     }
   } else if (ds.key_from && bal && !bal.ok) {
     cards.push(dshCard('DeepSeek', 'DSH · 官方余额接口', 'API 密钥', '—', `读不到余额：${{ invalid_key: '密钥无效', insufficient: '账户余额不足', rate_limited: '请求太频繁', network: '网络连不上 api.deepseek.com' }[bal.error] || esc(bal.error)}`,
@@ -969,9 +971,9 @@ function render() {
   $('#updated').textContent = '更新于 ' + new Date(d.generated_at * 1000).toLocaleTimeString('zh-CN', { hour12: false });
 }
 
-async function load() {
+async function load(fresh) {
   try {
-    const r = await fetch('/api/data', { cache: 'no-store' });
+    const r = await fetch('/api/data' + (fresh === true ? '?fresh=1' : ''), { cache: 'no-store' });
     const d = await r.json();
     if (d.error) throw new Error(d.error);
     state.data = d;
@@ -994,7 +996,7 @@ $('#calls').addEventListener('click', e => {
   state.open.has(id) ? state.open.delete(id) : state.open.add(id);
   row.classList.toggle('open');
 });
-$('#refresh').addEventListener('click', load);
+$('#refresh').addEventListener('click', () => load(true));        // 立刻重读 Codex 额度（用了重置卡后点一下）
 $('#overview').addEventListener('click', e => {
   if (e.target.closest('[data-idle-toggle]')) { state.idleOpen = !state.idleOpen; renderOverview(state.data); return; }
   const row = e.target.closest('[data-agent]'); if (!row) return;
@@ -1050,6 +1052,7 @@ function openCal(provider) {
   $('#cal-balance').value = '';
   $('#cal-month').value = '';
   $('#cal-total').value = b.total ?? '';
+  $('#cal-recharge').value = b.recharge ?? '';
   $('#cal-msg').textContent = b.remaining != null ? `当前估算 ${usd(b.remaining)}` : '';
   if (!cal.open) cal.showModal();
   $('#cal-balance').focus();
@@ -1059,7 +1062,7 @@ $('#cal-form').addEventListener('submit', async e => {
   if (e.submitter?.value !== 'save') return;
   e.preventDefault();
   const num = id => $(id).value.trim() === '' ? null : Number($(id).value);
-  const body = { provider: calProvider, balance: num('#cal-balance'), month_spend: num('#cal-month'), total: num('#cal-total') };
+  const body = { provider: calProvider, balance: num('#cal-balance'), month_spend: num('#cal-month'), total: num('#cal-total'), recharge: num('#cal-recharge') };
   if (body.balance == null || !(body.balance >= 0)) { $('#cal-msg').textContent = '请填写当前余额'; return; }
   $('#cal-save').disabled = true;
   try {
@@ -1087,6 +1090,7 @@ function openDshPrice(pid) {
   for (const [id, k] of [['#dshd-input', 'input'], ['#dshd-output', 'output'], ['#dshd-cr', 'cache_read'], ['#dshd-cw', 'cache_write']]) $(id).value = pr[k] ?? '';
   $('#dshd-cur').value = pr.currency || p.currency || (pid === 'deepseek' ? 'CNY' : 'USD');
   $('#dshd-credit').value = p.credit_cfg ?? '';
+  $('#dshd-recharge').value = p.recharge_cfg ?? '';
   $('#dshd-msg').textContent = '';
   $('#dshd-link').hidden = pid !== 'deepseek';
   if (!dshd.open) dshd.showModal();
@@ -1097,11 +1101,11 @@ $('#dshd-form').addEventListener('submit', async e => {
   if (e.submitter?.value !== 'save') return;
   e.preventDefault();
   const v = id => $(id).value.trim();
-  const body = { provider: dshdPid, currency: $('#dshd-cur').value, credit: v('#dshd-credit') || null };
+  const body = { provider: dshdPid, currency: $('#dshd-cur').value, credit: v('#dshd-credit') || null, recharge: v('#dshd-recharge') || null };
   if (v('#dshd-input') || v('#dshd-output')) {
     if (!v('#dshd-input')) { $('#dshd-msg').textContent = '请填输入价'; return; }
     body.price = { input: v('#dshd-input'), output: v('#dshd-output') || v('#dshd-input'), cache_read: v('#dshd-cr'), cache_write: v('#dshd-cw') };
-  } else if (!body.credit) { $('#dshd-msg').textContent = '至少填单价或充值总额'; return; }
+  } else if (!body.credit && !body.recharge) { $('#dshd-msg').textContent = '至少填单价或充值金额'; return; }
   $('#dshd-save').disabled = true;
   try {
     await postJson('/api/dsh-config', body);

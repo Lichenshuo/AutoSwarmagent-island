@@ -298,7 +298,7 @@ function apiTile(a) {
     : '只有本地记录的花费。点击打开仪表盘，填一次 Console 里的余额即可估算剩余';
   return `<div class="tile" id="api-tile" style="cursor:pointer" title="${esc(hint)}">${creditRing(b.remaining_pct, 46)}<div>
     <div class="tile-k">${esc(label)}</div><div class="money num" style="color:${b.remaining != null ? tone(b.remaining_pct) : 'var(--t1)'}">${b.remaining != null && est ? '≈' : ''}${value}</div>
-    <div class="line num" style="line-height:1.35">本月<em style="color:var(--t1);font-weight:600">${usd(month)}${b.monthly_limit ? ' / ' + usd(b.monthly_limit) : ''}</em></div>${others}
+    <div class="line num" style="line-height:1.35">本月<em style="color:var(--t1);font-weight:600">${usd(month)}${b.monthly_limit ? ' / ' + usd(b.monthly_limit) : ''}</em></div>${b.total ? `<div class="qnote num" style="margin:0">累计充值 ${usd(b.total)}</div>` : ''}${others}
   </div></div>`;
 }
 
@@ -309,6 +309,7 @@ const tok = n => n == null ? '—' : n < 1e4 ? String(n) : n < 1e8 ? (n / 1e4).t
 /* DeepSeek Harness vendors. A vendor with a real balance (DeepSeek + API key) gets a ring: how much is left of everything
    seen so far. Everything else has no balance to draw, so it shows the amount used as a small pill. */
 const dshBal = (p, ds) => p.id === 'deepseek' && ds.balance?.ok && ds.balance.rows.length ? ds.balance.rows[0] : null;
+const cum = (v, cur) => v ? `<div class="qnote num" style="margin:0">累计充值 ${money(v, cur)}</div>` : '';
 const strong = t => `<em style="color:var(--t1);font-weight:600">${t}</em>`;
 function dshRingTile(p, ds, r) {
   const pct = r.remaining_pct;
@@ -316,7 +317,7 @@ function dshRingTile(p, ds, r) {
   return `<div class="tile dsh-tile" style="cursor:pointer" title="${esc(hint)}">${creditRing(pct, 46, 'D')}<div><div class="tile-k">${esc(p.name)}</div>
     <div class="money num" style="color:${tone(pct)}">${money(r.total, r.currency)}</div>
     <div class="line num" style="line-height:1.35">剩余${strong((pct ?? '—') + '%')}</div><div class="line num" style="line-height:1.35">已用${strong(money(r.used, r.currency))}</div>
-    ${r.used_source === 'total' ? '' : `<div class="qnote num" style="margin:0">自${new Date(r.since * 1000).getMonth() + 1}/${new Date(r.since * 1000).getDate()}起 · 点此填总额</div>`}</div></div>`;
+    ${r.credit_total ? cum(r.credit_total, r.currency) : `<div class="qnote num" style="margin:0">点此填累计充值</div>`}</div></div>`;
 }
 const estBal = (p, ds) => p.id !== 'deepseek' && p.remaining != null && p.remaining_pct != null ? p : null;
 function estRingTile(p) {
@@ -324,7 +325,7 @@ function estRingTile(p) {
   const hint = `${p.name}：按 DSH 记录的 token × ${p.price_source === 'default' ? '公开标价' : '你填的单价'}估算花费；总额是你填的，剩余 = 总额 − 估算花费，不是官方账单`;
   return `<div class="tile dsh-tile" style="cursor:pointer" title="${esc(hint)}">${creditRing(pct, 46, (p.name || '?')[0].toUpperCase())}<div><div class="tile-k">${esc(p.name)}</div>
     <div class="money num" style="color:${tone(pct)}">≈${money(p.remaining, p.currency)}</div>
-    <div class="line num" style="line-height:1.35">剩余${strong(pct + '%')}</div><div class="line num" style="line-height:1.35">已用${strong('≈' + money(p.cost_all, p.currency))}</div></div></div>`;
+    <div class="line num" style="line-height:1.35">剩余${strong(pct + '%')}</div><div class="line num" style="line-height:1.35">已用${strong('≈' + money(p.cost_all, p.currency))}</div>${cum(p.credit_cfg, p.currency)}</div></div>`;
 }
 function dshChip(p, ds) {
   const used = p.cost_all != null;

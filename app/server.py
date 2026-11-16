@@ -265,7 +265,7 @@ def codex_snapshot():
 # Session files only change while Codex runs, so the numbers go stale. `codex app-server` is Codex's own
 # JSON-RPC-over-stdio interface; it handles its own login and answers account/rateLimits/read.
 
-CODEX_LIVE_EVERY = 180
+CODEX_LIVE_EVERY = 60        # seconds between background reads of Codex's own quota; 10 when a window has just reset
 _codex_live = {"at": 0.0, "busy": False, "info": None, "error": None, "ok_at": None}
 _codex_live_lock = threading.Lock()
 
@@ -394,10 +394,14 @@ def _codex_live_refresh():
             _codex_live.update(info=info, ok_at=time.time())
 
 
-def codex_with_live(limits):
+def codex_with_live(limits, fresh=False):
     """Merge Codex's own live reading (refreshed in the background, never blocks) over the session-file one."""
     with _codex_live_lock:
-        if not _codex_live["busy"] and time.time() - _codex_live["at"] > CODEX_LIVE_EVERY:
+        now = time.time()
+        shown = (_codex_live["info"] or limits or {}).get("windows") or []
+        reset_passed = any(w.get("resets_at") and w["resets_at"] < now for w in shown)    # a window rolled over (or a reset card was used): the number on screen is old
+        every = 10 if (fresh or reset_passed) else CODEX_LIVE_EVERY
+        if not _codex_live["busy"] and now - _codex_live["at"] > every:
             _codex_live.update(at=time.time(), busy=True)
             threading.Thread(target=_codex_live_refresh, daemon=True).start()
         live, ok_at, error = _codex_live["info"], _codex_live["ok_at"], _codex_live["error"]
@@ -1035,7 +1039,7 @@ def billing_snapshot(events, pid="anthropic"):
     total = credit.get("total")
     now = time.time()
     month = utc_day(now)[:7]
-    out = {"total": total, "monthly_limit": limit, "source": None}
+    out = {"total": total, "recharge": credit.get("recharge"), "monthly_limit": limit, "source": None}
     key = config.get("anthropic_admin_key") if pid == "anthropic" else None
     if key:
         days = admin_daily_costs(key, credit.get("since") or "2026-01-01")
@@ -1069,8 +1073,9 @@ def billing_snapshot(events, pid="anthropic"):
         # The estimate drifts: flag it once it is old or most of the estimate is extrapolation.
         if age > STALE_AFTER or (snap.get("balance") and since > 0.3 * snap["balance"]):
             out["stale"] = True
-    if out.get("remaining") is not None and total:
-        out["remaining_pct"] = max(0.0, min(100.0, out["remaining"] / total * 100))
+    denom = credit.get("recharge") or total          # the ring's full circle: one top-up if known, else everything credited
+    if out.get("remaining") is not None and denom:
+        out["remaining_pct"] = max(0.0, min(100.0, out["remaining"] / denom * 100))
     return out
 
 
@@ -1083,7 +1088,7 @@ def local_cost_events(pid="anthropic"):
     return api_snapshot(events_only=pid)
 
 
-def calibrate(balance, month_spend=None, total=None, provider="anthropic"):
+def calibrate(balance, month_spend=None, total=None, provider="anthropic", recharge=None):
     """Record what the Console shows right now and learn how much local costs undercount real billing.
 
     factor = (previous balance − new balance) ÷ local spend recorded in between, blended with the
@@ -1126,6 +1131,11 @@ def calibrate(balance, month_spend=None, total=None, provider="anthropic"):
                 month_spend = old.get("month_spend")
         if total is not None:
             credit["total"] = float(total)
+        if recharge is not None:
+            if float(recharge) > 0:
+                credit["recharge"] = float(recharge)
+            else:
+                credit.pop("recharge", None)
         snap = {"balance": round(balance, 2), "at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
         if month_spend is not None:
             snap["month_spend"] = round(float(month_spend), 2)
@@ -1542,7 +1552,8 @@ def deepseek_balance(key):
         return {"ok": False, "error": {401: "invalid_key", 402: "insufficient", 429: "rate_limited"}.get(exc.code, f"http_{exc.code}")}
     except Exception as exc:
         return {"ok": False, "error": "network", "detail": type(exc).__name__}
-    totals = (read_json(CONFIG_FILE) or {}).get("deepseek_total") or {}
+    cfg = read_json(CONFIG_FILE) or {}
+    totals, recharge = cfg.get("deepseek_total") or {}, (cfg.get("dsh_recharge") or {}).get("deepseek")
     track = read_json(BALANCE_FILE) or {}
     rows = []
     for b in data.get("balance_infos") or []:
@@ -1561,10 +1572,10 @@ def deepseek_balance(key):
         t["last_total"] = total
         total_in = totals.get(cur)
         used = max(0.0, total_in - total) if total_in else t["spent"]
-        ring_total = total_in if total_in else total + t["spent"]     # everything seen so far: what is left + what was spent
+        ring_total = recharge or (total_in if total_in else total + t["spent"])     # one top-up if the user filled it in; else everything seen so far
         rows.append({"currency": cur, "total": total, "granted": granted, "topped_up": topped, "used": used,
                      "used_source": "total" if total_in else "tracked", "since": None if total_in else t["first_at"],
-                     "credit_total": total_in, "ring_total": ring_total,
+                     "credit_total": total_in, "recharge": recharge, "ring_total": ring_total,
                      "remaining_pct": round(max(0.0, min(100.0, total / ring_total * 100))) if ring_total > 0 else None})
     try:
         DATA.mkdir(parents=True, exist_ok=True)
@@ -1676,15 +1687,16 @@ def dsh_snapshot():
         card = {"id": pid, "name": DSH_LABELS.get(pid) or provider_name(pid),
                 "tokens": {k: a[k] for k in ("today", "week", "month", "all")},
                 "price": user_price, "price_source": "custom" if "custom" in a["sources"] or (user_price and not a["sources"]) else ("default" if a["sources"] else ("default" if known else None)),
-                "credit_cfg": (config.get("dsh_credit") or {}).get(pid), "currency": cur,
+                "credit_cfg": (config.get("dsh_credit") or {}).get(pid), "recharge_cfg": (config.get("dsh_recharge") or {}).get(pid), "currency": cur,
                 "cost_month": a["c_month"] if known else None, "cost_all": a["c_all"] if known else None,
                 "models": sorted(({"model": k, "tokens": v["tokens"], "cost": v["cost"] if v["priced"] else None, "source": v["source"]} for k, v in a["models"].items()),
                                  key=lambda m: -(m["cost"] or 0) - m["tokens"] * 1e-12)[:8]}
-        credit = card["credit_cfg"]
-        if credit and card["cost_all"] is not None:
+        credit, recharge = card["credit_cfg"], card["recharge_cfg"]
+        base = credit or recharge          # cumulative top-ups; with only a per-top-up amount, treat that as everything credited
+        if base and card["cost_all"] is not None:
             card["credit"] = credit
-            card["remaining"] = max(0.0, float(credit) - card["cost_all"])
-            card["remaining_pct"] = round(max(0.0, min(100.0, card["remaining"] / float(credit) * 100)))
+            card["remaining"] = max(0.0, float(base) - card["cost_all"])
+            card["remaining_pct"] = round(max(0.0, min(100.0, card["remaining"] / float(recharge or credit) * 100)))   # the ring's full circle is one top-up
         out["providers"].append(card)
     out["tokens_today"] = sum(a["today"] for a in acc.values())
     out["tokens_week"] = sum(a["week"] for a in acc.values())
@@ -1798,10 +1810,32 @@ _ttl_cache = {}
 _ttl_lock = threading.Lock()
 
 
+_ttl_refreshing = set()
+
+
+def _ttl_refresh(key, fn):
+    try:
+        value = fn()
+        with _ttl_lock:
+            _ttl_cache[key] = (time.time(), value)
+    except Exception:
+        pass
+    finally:
+        with _ttl_lock:
+            _ttl_refreshing.discard(key)
+
+
 def cached(key, ttl, fn):
+    """Fresh value within ttl; after that the old value is returned at once while one background thread refreshes it,
+    so a slow scan never makes a page request wait (only the very first call has to)."""
     with _ttl_lock:
         hit = _ttl_cache.get(key)
         if hit and time.time() - hit[0] < ttl:
+            return hit[1]
+        if hit:
+            if key not in _ttl_refreshing:
+                _ttl_refreshing.add(key)
+                threading.Thread(target=_ttl_refresh, args=(key, fn), daemon=True).start()
             return hit[1]
     value = fn()
     with _ttl_lock:
@@ -2234,12 +2268,29 @@ def model_price_list(models):
     return sorted(rows, key=lambda r: -r["output"])
 
 
-def snapshot():
+def time_snapshot():
+    """Print how long each expensive part takes, cold then warm."""
+    parts = [("Codex 会话文件", codex_snapshot), ("Claude API 用量", api_snapshot), ("Claude 会话", claude_snapshot), ("DSH 会话", dsh_snapshot),
+             ("Claude 子 agent", claude_subagents), ("主 agent / 顾问会话", arch_sessions)]
+    for label, fn in parts:
+        t = time.time()
+        try:
+            fn()
+        except Exception as exc:
+            label += f"（出错：{exc}）"
+        print(f"{label:<20}{time.time() - t:6.2f}s")
+    codex_sessions, _ = codex_snapshot()
+    api_ev, oc = api_snapshot()
+    t = time.time(); calls = calls_snapshot(codex_sessions, oc); print(f"{'派活记录（' + str(len(calls)) + ' 条）':<20}{time.time() - t:6.2f}s")
+    t = time.time(); snapshot(); print(f"{'整份数据（第二次）':<20}{time.time() - t:6.2f}s")
+
+
+def snapshot(fresh=False):
     # Quotas and spend change slowly; delegation state is read fresh every time.
     codex_sessions, codex_limits = cached("codex", 20, codex_snapshot)
-    codex_limits = {**codex_with_live(codex_limits), **codex_tokens(codex_sessions)}
+    codex_limits = {**codex_with_live(codex_limits, fresh), **codex_tokens(codex_sessions)}
     api, opencode_sessions = cached("api", 20, api_snapshot)
-    calls = calls_snapshot(codex_sessions, opencode_sessions)
+    calls = cached("calls", 2, lambda: calls_snapshot(codex_sessions, opencode_sessions))
     dismissed = set(dismissed_ids())
     for c in calls:
         c["dismissed"] = c["call_id"] in dismissed
@@ -2288,11 +2339,12 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path.startswith("/island"):
             self._send((ROOT / "island.html").read_bytes(), "text/html; charset=utf-8")
         elif self.path.startswith("/api/data"):
+            fresh = "fresh=1" in self.path
             if time.time() - _claude_state.get("last_scan", 0) > 60:
                 _claude_state["last_scan"] = time.time()
                 threading.Thread(target=claude_scan, daemon=True).start()
             try:
-                body = json.dumps(snapshot(), ensure_ascii=False).encode("utf-8")
+                body = json.dumps(snapshot(fresh), ensure_ascii=False).encode("utf-8")
                 self._send(body, "application/json; charset=utf-8")
             except Exception as exc:
                 self._send(json.dumps({"error": str(exc)}).encode(), "application/json", 500)
@@ -2320,11 +2372,11 @@ class Handler(BaseHTTPRequestHandler):
                 kept = set_dismissed(add=add, remove=ids("restore"), clear=bool(body.get("restore_all")))
                 return self._send(json.dumps({"added": add, "dismissed": len(kept)}).encode(), "application/json; charset=utf-8")
             if self.path == "/api/dsh-config":
-                save_dsh_config(str(body.get("provider") or ""), body.get("price"), body.get("credit"), body.get("currency"))
+                save_dsh_config(str(body.get("provider") or ""), body.get("price"), body.get("credit"), body.get("currency"), body.get("recharge"))
                 return self._send(b'{"ok":true}', "application/json")
             opt = lambda k: None if body.get(k) in (None, "") else float(body[k])
             provider = str(body.get("provider") or "anthropic")[:60]
-            result = calibrate(float(body["balance"]), opt("month_spend"), opt("total"), provider)
+            result = calibrate(float(body["balance"]), opt("month_spend"), opt("total"), provider, opt("recharge"))
             self._send(json.dumps(result, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
         except (KeyError, ValueError, TypeError) as exc:
             self._send(json.dumps({"error": f"bad input: {exc}"}).encode(), "application/json", 400)
@@ -2384,11 +2436,12 @@ def start_server(port=PORT):
     DATA.mkdir(parents=True, exist_ok=True)
     _claude_load_cache()
     threading.Thread(target=claude_scan, daemon=True).start()
+    threading.Thread(target=lambda: snapshot(), daemon=True).start()       # warm every cache so the first page load is not the slow one
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server
 
 
-def save_dsh_config(pid, price=None, credit=None, currency=None):
+def save_dsh_config(pid, price=None, credit=None, currency=None, recharge=None):
     """Remember a provider's per-million-token prices and/or the money credited to it (one-time setup)."""
     import math
     if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,40}", str(pid)):
@@ -2411,6 +2464,14 @@ def save_dsh_config(pid, price=None, credit=None, currency=None):
         config.setdefault("dsh_credit", {})[pid] = c
         if pid == "deepseek":
             config.setdefault("deepseek_total", {})[cur or "CNY"] = c
+    if recharge not in (None, ""):
+        r = float(recharge)
+        if not math.isfinite(r) or r < 0:
+            raise ValueError("recharge must be >= 0")
+        if r > 0:
+            config.setdefault("dsh_recharge", {})[pid] = r
+        else:
+            (config.get("dsh_recharge") or {}).pop(pid, None)
     tmp = CONFIG_FILE.with_suffix(".tmp")
     tmp.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
     os.replace(tmp, CONFIG_FILE)
@@ -2535,6 +2596,7 @@ def main():
     parser.add_argument("--codex-calls", action="store_true", help="show, per Codex dispatch, the recorded fields and whether it is filed under Codex desktop or Codex API")
     parser.add_argument("--arch-role", nargs="+", metavar="VALUE",
                         help="name the main agent / advisor session for the architecture view: main|advisor NAME [MODEL [EFFORT]]")
+    parser.add_argument("--time-snapshot", action="store_true", help="time each part of the data snapshot (to find what makes the dashboard slow)")
     parser.add_argument("--arch-sessions", action="store_true", help="list recent Claude sessions with their titles and which one matches main/advisor")
     parser.add_argument("--dsh-calls", action="store_true", help="show, per DSH dispatch, the model/effort AutoSwarm recorded vs what the session shows")
     parser.add_argument("--find-desktop", action="store_true",
@@ -2554,6 +2616,9 @@ def main():
         return find_desktop()
     if args.arch_role:
         return set_arch_role(args.arch_role)
+    if args.time_snapshot:
+        time_snapshot()
+        return
     if args.arch_sessions:
         return arch_sessions_debug()
     if args.dsh_calls:
