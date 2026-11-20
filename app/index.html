@@ -442,7 +442,7 @@ footer{margin:clamp(48px,8vw,80px) 0 40px;font-size:12px;color:var(--text-3);lin
 
 <script>
 const $ = s => document.querySelector(s);
-const state = { idleOpen: false, data: null, filter: 'all', agent: null, open: new Set(), showDismissed: false, undo: null };
+const state = { callLimit: 60, callsHtml: '', idleOpen: false, data: null, filter: 'all', agent: null, open: new Set(), showDismissed: false, undo: null };
 const BADSET = ['failed', 'lost', 'cancelled', 'unknown'];
 const isBad = c => BADSET.includes(c.state);
 const needsLook = c => isBad(c) && !c.superseded && !c.dismissed;   // an anomaly still worth a look
@@ -679,7 +679,6 @@ function callRow(c) {
     u?.tokens ? (u.scope === 'call' ? '本次 ' + tokens(u.tokens) + ' token' : '会话累计 ' + tokens(u.tokens) + ' token（拆不出本次）') : null,
     u?.cost ? usd(u.cost) : null].filter(Boolean).join(' · ');
   const open = state.open.has(c.call_id) ? 'open' : '';
-  const result = c.error ? `<span class="err">${esc(c.error)}</span>\n\n${esc(c.content)}` : esc(c.content || (c.state === 'running' ? '还在执行…' : '（没有返回内容）'));
   return `<div class="row ${open} ${c.dismissed && isBad(c) ? 'dim' : ''}" data-id="${c.call_id}">
     <div class="row-main">
       <div class="mono">${MONO[c.provider] || '··'}</div>
@@ -689,13 +688,16 @@ function callRow(c) {
         : needsLook(c) ? `<button class="link-btn" data-dismiss="${esc(c.call_id)}">忽略</button>` : ''}</div>
       ${CHEV}
     </div>
-    <div class="detail">
-      <div class="detail-grid">
+    <div class="detail">${open ? callDetail(c) : ''}</div></div>`;
+}
+/* 任务和结果的全文只在展开时才生成：一千多条同时放进页面会把标签页撑爆 */
+function callDetail(c) {
+  const result = c.error ? `<span class="err">${esc(c.error)}</span>\n\n${esc(c.content)}` : esc(c.content || (c.state === 'running' ? '还在执行…' : '（没有返回内容）'));
+  return `<div class="detail-grid">
         <div class="detail-box"><h4>任务</h4><pre>${esc(c.prompt)}</pre></div>
         <div class="detail-box"><h4>结果</h4><pre>${result}</pre></div>
       </div>
-      <div class="detail-meta"><span>${esc(c.call_id)}</span>${c.session ? `<span>会话 ${esc(c.session)}</span>` : ''}<span>${esc(c.workspace || '')}</span></div>
-    </div></div>`;
+      <div class="detail-meta"><span>${esc(c.call_id)}</span>${c.session ? `<span>会话 ${esc(c.session)}</span>` : ''}<span>${esc(c.workspace || '')}</span></div>`;
 }
 function renderCalls(d) {
   const all = d.calls.filter(c => !c.probe);
@@ -715,17 +717,20 @@ function renderCalls(d) {
     </div>` : '';
   const chip = state.agent ? `<div class="chip-f">只看 ${esc(agentLabel(state.agent))}<button id="clear-agent">清除</button></div>` : '';
   if (!list.length) {
+    state.callsHtml = '';
     $('#calls').innerHTML = chip + bar + `<div class="panel"><div class="empty">${all.length ? (f === 'bad' ? '没有异常，干净了' : '没有符合条件的记录') : '还没有派活记录。让主 agent 用一次 autoswarm 就会出现在这里'}</div></div>`;
     return;
   }
-  const groups = [];
-  for (const c of list) {
+  const total = list.length, groups = [];
+  for (const c of list.slice(0, state.callLimit)) {
     const label = c.created_at ? dayLabel(c.created_at) : '未知时间';
     if (!groups.length || groups[groups.length - 1].label !== label) groups.push({ label, items: [] });
     groups[groups.length - 1].items.push(c);
   }
-  $('#calls').innerHTML = chip + bar + groups.map(g => `<div class="group-label">${g.label}</div><div class="panel">${g.items.map(callRow).join('')}</div>`).join('')
+  const html = chip + bar + groups.map(g => `<div class="group-label">${g.label}</div><div class="panel">${g.items.map(callRow).join('')}</div>`).join('')
+    + (total > state.callLimit ? `<div class="toolbar"><span>只显示最近 <b>${state.callLimit}</b> 条，共 ${total} 条</span><button class="pill-btn" data-more-calls>再显示 100 条</button></div>` : '')
     + (hidden ? `<p class="note">已隐藏 ${hidden} 条安装时的连通性自检</p>` : '');
+  if (html !== state.callsHtml) { state.callsHtml = html; $('#calls').innerHTML = html; }       // 没变化就不重画，省掉每 3 秒一次的整页重建
 }
 function renderSessions(d) {
   const s = d.claude.sessions;
@@ -995,6 +1000,9 @@ $('#calls').addEventListener('click', e => {
   const row = main.parentElement, id = row.dataset.id;
   state.open.has(id) ? state.open.delete(id) : state.open.add(id);
   row.classList.toggle('open');
+  const box = row.querySelector('.detail'), c = state.open.has(id) && state.data.calls.find(x => x.call_id === id);
+  if (box && c) box.innerHTML = callDetail(c);
+  state.callsHtml = '';
 });
 $('#refresh').addEventListener('click', () => load(true));        // 立刻重读 Codex 额度（用了重置卡后点一下）
 $('#overview').addEventListener('click', e => {
@@ -1036,6 +1044,7 @@ $('#calls').addEventListener('click', async e => {
   } catch (err) { alert('操作失败：' + err.message); }
 });
 $('#calls').addEventListener('click', e => {
+  if (e.target.closest('[data-more-calls]')) { state.callLimit += 100; renderCalls(state.data); return; }
   if (e.target.closest('#clear-agent')) { state.agent = null; renderOverview(state.data); renderCalls(state.data); }
 });
 

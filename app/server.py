@@ -2327,6 +2327,16 @@ def time_snapshot():
         time.sleep(3)          # past the short caches, so the next one shows what a normal refresh costs
 
 
+def _slim_call(c):
+    """What the pages get of a call: full task and result texts can be huge (1000 calls × tens of KB crashed the browser tab)."""
+    out = dict(c)
+    for k, limit in (("prompt", 2000), ("content", 4000), ("error", 1500)):
+        v = out.get(k) or ""
+        if len(v) > limit:
+            out[k] = v[:limit] + f"\n…（已截断，共 {len(v)} 字，完整内容在 AutoSwarm 记录里）"
+    return out
+
+
 def snapshot(fresh=False):
     # Quotas and spend change slowly; delegation state is read fresh every time.
     codex_sessions, codex_limits = cached("codex", 20, codex_snapshot)
@@ -2347,7 +2357,7 @@ def snapshot(fresh=False):
         "claude": claude_now,
         "codex": codex_limits,
         "api": api,
-        "calls": calls,
+        "calls": [_slim_call(c) for c in calls],
         "dismissed": sorted(dismissed),
         "restart_needed": restart_needed(),
         "delegation": deleg,
