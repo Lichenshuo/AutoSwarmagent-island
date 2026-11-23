@@ -235,7 +235,7 @@ def parse_codex_file(path, info=None, offset=0):
 
 
 def codex_snapshot():
-    sessions, latest = {}, None
+    sessions, latest, live = {}, None, set()
     if CODEX_SESSIONS.exists():
         cutoff = time.time() - 30 * 86400
         for path in CODEX_SESSIONS.rglob("*.jsonl"):
@@ -245,6 +245,7 @@ def codex_snapshot():
                 continue
             if st.st_mtime < cutoff:
                 continue
+            live.add(path)
             key = (st.st_mtime, st.st_size)
             cached = _codex_cache.get(path)
             if not cached or cached[0] != key:
@@ -257,6 +258,8 @@ def codex_snapshot():
                 sessions[info["id"]] = {**info, "path": path}
             if info["rate"] and (latest is None or info["rate_ts"] > latest["rate_ts"]):
                 latest = info
+    for gone in [k for k in _codex_cache if k not in live]:      # files that aged out of the window must not stay in memory
+        _codex_cache.pop(gone, None)
     limits = None
     if latest:
         rl = latest["rate"]
@@ -391,6 +394,10 @@ def _codex_fetch(debug=None):
         except OSError:
             pass
         proc.kill()
+        try:
+            proc.wait(timeout=3)          # reap it, otherwise every read leaves a dead process handle behind
+        except Exception:
+            pass
 
 
 def _codex_live_refresh():
@@ -431,9 +438,60 @@ def codex_with_live(limits, fresh=False):
 
 # ── Claude Code (main agent) ─────────────────────────────────────────────
 
+def _trim_memory():
+    """Give freed memory back to Windows (Python's allocator keeps it otherwise, so the process only ever looks bigger)."""
+    try:
+        import gc
+        gc.collect()
+        if sys.platform == "win32":
+            import ctypes
+            ctypes.cdll.msvcrt._heapmin()
+    except Exception:
+        pass
+
+
+def process_memory_mb():
+    """This process's own memory in MB (private bytes on Windows), or None."""
+    try:
+        if sys.platform == "win32":
+            import ctypes
+            from ctypes import wintypes
+
+            class PMC(ctypes.Structure):
+                _fields_ = [("cb", wintypes.DWORD), ("PageFaultCount", wintypes.DWORD)] + [(n, ctypes.c_size_t) for n in (
+                    "PeakWorkingSetSize", "WorkingSetSize", "QuotaPeakPagedPoolUsage", "QuotaPagedPoolUsage",
+                    "QuotaPeakNonPagedPoolUsage", "QuotaNonPagedPoolUsage", "PagefileUsage", "PeakPagefileUsage", "PrivateUsage")]
+            pmc = PMC()
+            pmc.cb = ctypes.sizeof(pmc)
+            k32 = ctypes.windll.kernel32
+            k32.GetCurrentProcess.restype = wintypes.HANDLE
+            ctypes.windll.psapi.GetProcessMemoryInfo.argtypes = [wintypes.HANDLE, ctypes.POINTER(PMC), wintypes.DWORD]
+            if ctypes.windll.psapi.GetProcessMemoryInfo(k32.GetCurrentProcess(), ctypes.byref(pmc), pmc.cb):
+                return round(pmc.PrivateUsage / 1048576)
+        else:
+            for line in open("/proc/self/status"):
+                if line.startswith("VmRSS:"):
+                    return round(int(line.split()[1]) / 1024)
+    except Exception:
+        pass
+    return None
+
+
+def memory_report():
+    """How big each cache is, to see what grows when the process gets large (open /api/mem)."""
+    with _ttl_lock:
+        ttl = len(_ttl_cache)
+    return {"process_mb": process_memory_mb(),
+            "claude_seen_ids": len(_claude_seen), "claude_files": len(_claude_state["files"]),
+            "codex_files": len(_codex_cache), "codex_events": sum(len(v[1]["events"]) for v in list(_codex_cache.values())),
+            "dsh_sessions": len(_dsh_cache), "dsh_msgs": sum(len(v[1]["msgs"]) for v in list(_dsh_cache.values())),
+            "subagent_files": len(_csub_cache), "parent_sessions": len(_roles_cache), "title_files": len(_title_cache),
+            "frozen_calls": len(_call_frozen), "ttl_entries": ttl}
+
+
 _claude_lock = threading.Lock()
 _claude_state = {"files": {}, "ready": False, "scanning": False}
-_claude_seen = set()  # resumed sessions copy history into new files; count each message once
+_claude_seen = {}   # message id -> its timestamp. Resumed sessions copy history into new files; each message is counted once. Pruned after 35 days.
 CLAUDE_CACHE = DATA / "claude-cache.json"
 
 
@@ -441,14 +499,26 @@ def _claude_load_cache():
     cached = read_json(CLAUDE_CACHE)
     if cached and isinstance(cached.get("files"), dict):
         _claude_state["files"] = cached["files"]
-        _claude_seen.update(cached.get("seen", []))
+        for x in cached.get("seen", []):
+            if isinstance(x, str):
+                _claude_seen[x] = time.time()
+            elif isinstance(x, list) and len(x) == 2:
+                _claude_seen[x[0]] = x[1]
 
 
 def _claude_save_cache():
+    """Write the cache straight to disk piece by piece (one giant json string of everything used to balloon the process)."""
     DATA.mkdir(parents=True, exist_ok=True)
     tmp = CLAUDE_CACHE.with_suffix(".tmp")
-    tmp.write_text(json.dumps({"files": _claude_state["files"], "seen": list(_claude_seen)}), encoding="utf-8")
+    with open(tmp, "w", encoding="utf-8") as fh:
+        fh.write('{"files": ')
+        json.dump(_claude_state["files"], fh)
+        fh.write(', "seen": [')
+        for i, (k, v) in enumerate(_claude_seen.items()):
+            fh.write(("," if i else "") + json.dumps([k, v]))
+        fh.write("]}")
     tmp.replace(CLAUDE_CACHE)
+    _claude_state["saved_at"] = time.time()
 
 
 def _claude_scan_file(path, entry):
@@ -505,8 +575,9 @@ def _claude_line(raw, entry):
     mid = msg.get("id")
     if not usage or (mid and mid in _claude_seen):
         return
+    ts = iso_to_ts(row.get("timestamp")) or time.time()
     if mid:
-        _claude_seen.add(mid)
+        _claude_seen[mid] = ts
     values = {
         "in": usage.get("input_tokens") or 0,
         "out": usage.get("output_tokens") or 0,
@@ -516,7 +587,6 @@ def _claude_line(raw, entry):
     for k, v in values.items():
         entry["tot"][k] += v
     entry["tot"]["n"] += 1
-    ts = iso_to_ts(row.get("timestamp")) or time.time()
     day = local_day(ts)
     entry["days"][day] = entry["days"].get(day, 0) + sum(values.values())
     entry["last_ts"] = max(entry.get("last_ts", 0), ts)
@@ -553,9 +623,14 @@ def claude_scan():
             for key in [k for k, v in files.items() if v.get("last_ts", 0) and local_day(v["last_ts"]) < horizon]:
                 files.pop(key, None)
                 changed = True
-        if changed:
+        old = time.time() - 35 * 86400
+        for mid in [k for k, v in _claude_seen.items() if v < old]:
+            del _claude_seen[mid]
+        # a changing file would otherwise be rewritten (tens of MB) every minute: save at most every 10 minutes
+        if changed and time.time() - _claude_state.get("saved_at", 0) > 600:
             _claude_save_cache()
     finally:
+        _trim_memory()
         _claude_state["ready"] = True
         _claude_state["scanning"] = False
 
@@ -1458,7 +1533,12 @@ def parse_dsh_session(path):
 
 
 def dsh_files():
-    return {p.parent.name: p for p in DSH_HOME.glob(f"sessions/*/*/{DSH_SESSION_FILE}")} if DSH_HOME.is_dir() else {}
+    files = {p.parent.name: p for p in DSH_HOME.glob(f"sessions/*/*/{DSH_SESSION_FILE}")} if DSH_HOME.is_dir() else {}
+    live = {str(p) for p in files.values()}
+    with _dsh_lock:
+        for gone in [k for k in _dsh_cache if k not in live]:
+            _dsh_cache.pop(gone, None)
+    return files
 
 
 def dsh_session(session_id):
@@ -2123,6 +2203,8 @@ def claude_subagents(window=2 * 86400, limit=40, running_within=120):
                         "project": session_dir.parent.name, "session": session_dir.name})
         for key in [k for k in _csub_cache if k not in {str(p) for _, p, _ in found}]:
             _csub_cache.pop(key, None)
+        for key in [k for k in _roles_cache if k not in roles]:
+            _roles_cache.pop(key, None)
         return out
     except Exception:
         return []
@@ -2437,6 +2519,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send((ROOT / "index.html").read_bytes(), "text/html; charset=utf-8")
         elif self.path.startswith("/island"):
             self._send((ROOT / "island.html").read_bytes(), "text/html; charset=utf-8")
+        elif self.path.startswith("/api/mem"):
+            self._send(json.dumps(memory_report(), ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
         elif self.path.startswith("/api/data"):
             fresh, lite = "fresh=1" in self.path, "lite=1" in self.path
             if time.time() - _claude_state.get("last_scan", 0) > 60:
@@ -2535,7 +2619,7 @@ def start_server(port=PORT):
     DATA.mkdir(parents=True, exist_ok=True)
     _claude_load_cache()
     threading.Thread(target=claude_scan, daemon=True).start()
-    threading.Thread(target=lambda: snapshot(), daemon=True).start()       # warm every cache so the first page load is not the slow one
+    threading.Thread(target=lambda: (snapshot(), _trim_memory()), daemon=True).start()       # warm every cache so the first page load is not the slow one
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server
 
