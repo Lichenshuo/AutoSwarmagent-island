@@ -1138,9 +1138,9 @@ const nav = $('#nav');
 addEventListener('scroll', () => nav.classList.toggle('scrolled', scrollY > 8), { passive: true });
 
 load();
-/* 和灵动岛一样每 3 秒取一次；页面切到后台时放慢，切回来立刻刷新 */
+/* 和灵动岛一样每 5 秒取一次；页面切到后台时停，切回来立刻刷新 */
 let pollT = 0;
-function poll() { clearTimeout(pollT); pollT = setTimeout(() => load().finally(poll), document.hidden ? 15000 : 3000); }
+function poll() { clearTimeout(pollT); if (!document.hidden) pollT = setTimeout(() => load().finally(poll), 5000); }   // 页面不在前台就不取数据
 document.addEventListener('visibilitychange', () => { if (!document.hidden) load().finally(poll); });
 poll();
 </script>

@@ -489,7 +489,7 @@ async function load() {
     if (first) d.calls.forEach(c => S.prev.set(c.call_id, c.state)); else detectFinished(d);
     render();
   } catch (e) {
-    $('#c-chips').innerHTML = '<span class="idle">数据读取失败</span>';
+    $('#c-chips').innerHTML = `<span class="idle" title="${esc(String(e && e.message || e))}">数据读取失败</span>`;   // 鼠标停上去看原因
     layout();
   }
 }
@@ -530,7 +530,7 @@ window.addEventListener('pywebviewready', async () => {
 });
 setInterval(() => { if (S.open && S.data) full(S.data); }, 1000);
 load();
-setInterval(load, 3000);
+setInterval(load, 5000);          // 5 秒一次：够实时，后台读盘也少
 </script>
 </body>
 </html>

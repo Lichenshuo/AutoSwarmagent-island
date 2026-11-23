@@ -279,7 +279,7 @@ def codex_snapshot():
 # Session files only change while Codex runs, so the numbers go stale. `codex app-server` is Codex's own
 # JSON-RPC-over-stdio interface; it handles its own login and answers account/rateLimits/read.
 
-CODEX_LIVE_EVERY = 60        # seconds between background reads of Codex's own quota; 10 when a window has just reset
+CODEX_LIVE_EVERY = 120       # seconds between background reads of Codex's own quota (starts a codex process); 15 when a window has just reset
 _codex_live = {"at": 0.0, "busy": False, "info": None, "error": None, "ok_at": None}
 _codex_live_lock = threading.Lock()
 
@@ -418,7 +418,7 @@ def codex_with_live(limits, fresh=False):
         now = time.time()
         shown = (_codex_live["info"] or limits or {}).get("windows") or []
         reset_passed = any(w.get("resets_at") and w["resets_at"] < now for w in shown)    # a window rolled over (or a reset card was used): the number on screen is old
-        every = 10 if (fresh or reset_passed) else CODEX_LIVE_EVERY
+        every = 15 if (fresh or reset_passed) else CODEX_LIVE_EVERY
         if not _codex_live["busy"] and now - _codex_live["at"] > every:
             _codex_live.update(at=time.time(), busy=True)
             threading.Thread(target=_codex_live_refresh, daemon=True).start()
@@ -1368,6 +1368,14 @@ def _approval_summary(native):
     return _approval_summary(params) if params else None
 
 
+def _swarm_read_json(path):
+    try:
+        from autoswarm.records import read_json as rj
+        return rj(path)
+    except ImportError:
+        return read_json(path)
+
+
 def _inspect_all(frozen=None):
     """(task, inspection) for every call. A call listed in `frozen` is not inspected again: its inspection comes back as None."""
     if Records is None:
@@ -1377,12 +1385,19 @@ def _inspect_all(frozen=None):
         if not (home / "calls").exists():
             continue
         records = Records(home)
-        for _, task in records.calls(skip_unreadable=True):
-            if task["call_id"] in seen:
+        for path in sorted((home / "calls").glob("call_*")):
+            cid = path.name
+            if cid in seen:
                 continue
-            seen.add(task["call_id"])
-            if frozen is not None and task["call_id"] in frozen:
-                yield task, None
+            seen.add(cid)
+            if frozen is not None and cid in frozen:      # finished long ago: nothing on disk is read for it
+                yield {"call_id": cid}, None
+                continue
+            try:
+                task = _swarm_read_json(path / "task.json")
+            except OSError:
+                continue
+            if not task or not task.get("call_id"):
                 continue
             try:
                 yield task, swarm_engine.inspect_call(records, task["call_id"])
@@ -2459,6 +2474,10 @@ def _slim_call(c, lite=False):
     """What the pages get of a call: full task and result texts can be huge (1000 calls × tens of KB crashed the browser tab).
     The island only shows a title line, so it gets a much shorter version (lite)."""
     out = dict(c)
+    for k in ("prompt", "content", "error"):           # some results carry a list or dict here, not text
+        v = out.get(k)
+        if v is not None and not isinstance(v, str):
+            out[k] = json.dumps(v, ensure_ascii=False) if v else ""
     for k, limit in ((("prompt", 300), ("content", 0), ("error", 300)) if lite else (("prompt", 2000), ("content", 4000), ("error", 1500))):
         v = out.get(k) or ""
         if len(v) > limit:
@@ -2466,41 +2485,79 @@ def _slim_call(c, lite=False):
     return out
 
 
+def _guard(errors, label, fn, default):
+    """One failing part must not blank the whole island: return a default and note the error."""
+    try:
+        return fn()
+    except Exception as exc:
+        errors.append(f"{label}: {type(exc).__name__}: {str(exc)[:120]}")
+        return default
+
+
+def _island_calls(calls, dismissed):
+    """The island shows what is running, unresolved failures and the last few finished: not the whole history."""
+    now, keep, done = time.time(), [], 0
+    for c in calls:                                   # newest first
+        if c["probe"]:
+            continue
+        recent = (c.get("finished_at") or c.get("created_at") or 0) > now - 86400
+        last_done = c["state"] == "completed" and done < 4      # "最近完成" always has something to show
+        done += c["state"] == "completed"
+        if c["state"] in ("running", "waiting") or (unresolved(c) and c["call_id"] not in dismissed) or recent or last_done:
+            keep.append(c)
+    return keep[:60]
+
+
+# How often each part is re-read in the background (seconds). Longer = less disk and CPU.
+TTL = {"codex": 30, "api": 60, "calls": 4, "claude": 15, "dsh": 30, "claude-subagents": 6, "arch-sessions": 15}
+
+
 def snapshot(fresh=False, lite=False):
-    # Quotas and spend change slowly; delegation state is read fresh every time.
-    codex_sessions, codex_limits = cached("codex", 20, codex_snapshot)
-    codex_limits = {**codex_with_live(codex_limits, fresh), **codex_tokens(codex_sessions)}
-    api, opencode_sessions = cached("api", 20, api_snapshot)
-    calls = cached("calls", 2, lambda: calls_snapshot(codex_sessions, opencode_sessions))
-    dismissed = set(dismissed_ids())
+    """Everything the pages show. lite=True is the island: it skips the parts only the dashboard draws."""
+    errors = []
+    codex_sessions, codex_limits = _guard(errors, "codex", lambda: cached("codex", TTL["codex"], codex_snapshot), ({}, None))
+    codex_limits = _guard(errors, "codex-live", lambda: {**codex_with_live(codex_limits, fresh), **codex_tokens(codex_sessions)}, {"windows": []})
+    api, opencode_sessions = _guard(errors, "api", lambda: cached("api", TTL["api"], api_snapshot), ({"today": 0, "month": 0, "providers": [], "billing": {}}, {}))
+    calls = _guard(errors, "calls", lambda: cached("calls", TTL["calls"], lambda: calls_snapshot(codex_sessions, opencode_sessions)), [])
+    dismissed = set(_guard(errors, "dismissed", dismissed_ids, []))
     for c in calls:
         c["dismissed"] = c["call_id"] in dismissed
-    today = local_day(time.time())
-    real = [c for c in calls if not c["probe"]]
-    claude_now, dsh_now = cached("claude", 10, claude_snapshot), cached("dsh", 20, dsh_snapshot)
-    deleg, csub, arch = delegation_summary(calls), cached("claude-subagents", 3, claude_subagents), cached("arch-sessions", 5, arch_sessions)
-    seen_models = [arch["main"].get("model"), arch["advisor"].get("model")] + [a.get("model") for a in csub] + [a.get("model") for a in deleg.get("agents", [])]
-    return {
+    claude_now = _guard(errors, "claude", lambda: cached("claude", TTL["claude"], claude_snapshot), {"sessions": [], "windows": []})
+    dsh_now = _guard(errors, "dsh", lambda: cached("dsh", TTL["dsh"], dsh_snapshot), {"present": False, "providers": []})
+    out = {
         "generated_at": time.time(),
-        "setup": setup_items(claude_now, codex_limits, dsh_now),
+        "setup": _guard(errors, "setup", lambda: setup_items(claude_now, codex_limits, dsh_now), []),
         "claude": claude_now,
         "codex": codex_limits,
         "api": api,
-        "calls": [_slim_call(c, lite) for c in calls],
         "dismissed": sorted(dismissed),
         "restart_needed": restart_needed(),
+        "dsh": dsh_now,
+        "errors": errors,
+    }
+    if lite:
+        out["calls"] = [_slim_call(c, True) for c in _island_calls(calls, dismissed)]
+        return out
+    today = local_day(time.time())
+    real = [c for c in calls if not c["probe"]]
+    deleg = _guard(errors, "delegation", lambda: delegation_summary(calls), {"agents": [], "totals": {}})
+    csub = _guard(errors, "claude-subagents", lambda: cached("claude-subagents", TTL["claude-subagents"], claude_subagents), [])
+    arch = _guard(errors, "arch", lambda: cached("arch-sessions", TTL["arch-sessions"], arch_sessions), {"main": {}, "advisor": {}})
+    seen_models = [arch.get("main", {}).get("model"), arch.get("advisor", {}).get("model")] + [a.get("model") for a in csub] + [a.get("model") for a in deleg.get("agents", [])]
+    out.update({
+        "calls": [_slim_call(c) for c in calls],
         "delegation": deleg,
         "claude_agents": csub,
         "arch_roles": arch,
-        "model_prices": model_price_list(seen_models),
-        "dsh": dsh_now,
+        "model_prices": _guard(errors, "prices", lambda: model_price_list(seen_models), []),
         "summary": {
             "calls_today": sum(1 for c in real if c["created_at"] and local_day(c["created_at"]) == today),
             "running": sum(1 for c in real if c["state"] == "running"),
             "waiting": sum(1 for c in real if c["state"] == "waiting"),
             "failed": sum(1 for c in real if unresolved(c)),
         },
-    }
+    })
+    return out
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -2523,7 +2580,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(json.dumps(memory_report(), ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
         elif self.path.startswith("/api/data"):
             fresh, lite = "fresh=1" in self.path, "lite=1" in self.path
-            if time.time() - _claude_state.get("last_scan", 0) > 60:
+            if time.time() - _claude_state.get("last_scan", 0) > 300:      # token history: every 5 minutes is plenty
                 _claude_state["last_scan"] = time.time()
                 threading.Thread(target=claude_scan, daemon=True).start()
             try:
