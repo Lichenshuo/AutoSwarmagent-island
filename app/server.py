@@ -1836,6 +1836,17 @@ def dsh_snapshot():
                 "models": sorted(({"model": k, "tokens": v["tokens"], "cost": v["cost"] if v["priced"] else None, "source": v["source"]} for k, v in a["models"].items()),
                                  key=lambda m: -(m["cost"] or 0) - m["tokens"] * 1e-12)[:8]}
         credit, recharge = card["credit_cfg"], card["recharge_cfg"]
+        anchor = (config.get("dsh_anchor") or {}).get(pid)
+        if anchor and card["cost_all"] is not None:
+            # calibrated to a real balance: that balance minus what was spent since (scaled by the learned factor)
+            spent = max(0.0, card["cost_all"] - float(anchor.get("cost", 0))) * float(anchor.get("factor") or 1.0)
+            card["remaining"] = max(0.0, float(anchor["balance"]) - spent)
+            card["anchor"] = {"balance": anchor["balance"], "factor": anchor.get("factor") or 1.0}
+            card["credit"] = credit
+            denom = float(recharge or credit or anchor["balance"])
+            card["remaining_pct"] = round(max(0.0, min(100.0, card["remaining"] / denom * 100)))
+            out["providers"].append(card)
+            continue
         base = credit or recharge          # cumulative top-ups; with only a per-top-up amount, treat that as everything credited
         if base and card["cost_all"] is not None:
             card["credit"] = credit
@@ -2612,7 +2623,7 @@ class Handler(BaseHTTPRequestHandler):
                 kept = set_dismissed(add=add, remove=ids("restore"), clear=bool(body.get("restore_all")))
                 return self._send(json.dumps({"added": add, "dismissed": len(kept)}).encode(), "application/json; charset=utf-8")
             if self.path == "/api/dsh-config":
-                save_dsh_config(str(body.get("provider") or ""), body.get("price"), body.get("credit"), body.get("currency"), body.get("recharge"))
+                save_dsh_config(str(body.get("provider") or ""), body.get("price"), body.get("credit"), body.get("currency"), body.get("recharge"), body.get("balance"))
                 return self._send(b'{"ok":true}', "application/json")
             opt = lambda k: None if body.get(k) in (None, "") else float(body[k])
             provider = str(body.get("provider") or "anthropic")[:60]
@@ -2681,7 +2692,7 @@ def start_server(port=PORT):
     return server
 
 
-def save_dsh_config(pid, price=None, credit=None, currency=None, recharge=None):
+def save_dsh_config(pid, price=None, credit=None, currency=None, recharge=None, balance=None):
     """Remember a provider's per-million-token prices and/or the money credited to it (one-time setup)."""
     import math
     if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,40}", str(pid)):
@@ -2712,6 +2723,21 @@ def save_dsh_config(pid, price=None, credit=None, currency=None, recharge=None):
             config.setdefault("dsh_recharge", {})[pid] = r
         else:
             (config.get("dsh_recharge") or {}).pop(pid, None)
+    if balance not in (None, ""):
+        b = float(balance)
+        if not math.isfinite(b) or b < 0:
+            raise ValueError("balance must be >= 0")
+        card = next((c for c in dsh_snapshot().get("providers", []) if c["id"] == pid), None)
+        cost_now = (card or {}).get("cost_all")
+        if cost_now is None:
+            raise ValueError("先填单价，才能按实际余额校准")
+        anchors = config.setdefault("dsh_anchor", {})
+        old = anchors.get(pid) or {}
+        factor = float(old.get("factor") or 1.0)
+        if old and cost_now - float(old.get("cost", 0)) >= 0.5 and float(old.get("balance", 0)) > b:
+            learned = min(max((float(old["balance"]) - b) / (cost_now - float(old["cost"])), 0.3), 5.0)
+            factor = round(0.7 * learned + 0.3 * factor, 3)     # real spend ÷ estimated spend, blended
+        anchors[pid] = {"balance": b, "cost": cost_now, "factor": factor, "at": time.time()}
     tmp = CONFIG_FILE.with_suffix(".tmp")
     tmp.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
     os.replace(tmp, CONFIG_FILE)
