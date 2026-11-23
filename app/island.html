@@ -480,7 +480,7 @@ function render() {
 
 async function load() {
   try {
-    const r = await fetch('/api/data', { cache: 'no-store' });
+    const r = await fetch('/api/data?lite=1', { cache: 'no-store' });
     const d = await r.json();
     if (d.error) throw new Error(d.error);
     const first = !S.data;

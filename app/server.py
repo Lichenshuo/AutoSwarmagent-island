@@ -1800,7 +1800,7 @@ def calls_snapshot(codex_sessions, opencode_sessions):
         })
         done = calls[-1]
         if done["finished_at"] and done["state"] in ("completed", "failed", "cancelled") and time.time() - done["finished_at"] > 900 and not done["approvals"]:
-            _call_frozen[done["call_id"]] = done
+            _call_frozen[done["call_id"]] = _slim_call(done)      # keep memory small: the long texts are never needed again
     calls.sort(key=lambda c: c["created_at"] or 0)
     rounds = {}
     probes = {c["agent_id"] for c in calls if c["probe"]}
@@ -1992,8 +1992,9 @@ def _csub_parent_roles(session_file):
                 if not isinstance(blk, dict):
                     continue
                 if blk.get("type") == "tool_use" and blk.get("name") in ("Agent", "Task") and isinstance(blk.get("input"), dict):
-                    uses[blk.get("id")] = blk["input"]
-                    out["prompt:" + str(blk["input"].get("prompt") or "").strip()[:300]] = blk["input"]
+                    spec = {k: str(blk["input"].get(k) or "")[:200] for k in ("description", "subagent_type")}    # not the whole prompt
+                    uses[blk.get("id")] = spec
+                    out["prompt:" + str(blk["input"].get("prompt") or "").strip()[:300]] = spec
                 elif blk.get("type") == "tool_result":
                     res = row.get("toolUseResult")
                     aid = res.get("agentId") if isinstance(res, dict) else None
@@ -2327,17 +2328,18 @@ def time_snapshot():
         time.sleep(3)          # past the short caches, so the next one shows what a normal refresh costs
 
 
-def _slim_call(c):
-    """What the pages get of a call: full task and result texts can be huge (1000 calls × tens of KB crashed the browser tab)."""
+def _slim_call(c, lite=False):
+    """What the pages get of a call: full task and result texts can be huge (1000 calls × tens of KB crashed the browser tab).
+    The island only shows a title line, so it gets a much shorter version (lite)."""
     out = dict(c)
-    for k, limit in (("prompt", 2000), ("content", 4000), ("error", 1500)):
+    for k, limit in ((("prompt", 300), ("content", 0), ("error", 300)) if lite else (("prompt", 2000), ("content", 4000), ("error", 1500))):
         v = out.get(k) or ""
         if len(v) > limit:
-            out[k] = v[:limit] + f"\n…（已截断，共 {len(v)} 字，完整内容在 AutoSwarm 记录里）"
+            out[k] = v[:limit] + ("" if lite else f"\n…（已截断，共 {len(v)} 字，完整内容在 AutoSwarm 记录里）")
     return out
 
 
-def snapshot(fresh=False):
+def snapshot(fresh=False, lite=False):
     # Quotas and spend change slowly; delegation state is read fresh every time.
     codex_sessions, codex_limits = cached("codex", 20, codex_snapshot)
     codex_limits = {**codex_with_live(codex_limits, fresh), **codex_tokens(codex_sessions)}
@@ -2357,7 +2359,7 @@ def snapshot(fresh=False):
         "claude": claude_now,
         "codex": codex_limits,
         "api": api,
-        "calls": [_slim_call(c) for c in calls],
+        "calls": [_slim_call(c, lite) for c in calls],
         "dismissed": sorted(dismissed),
         "restart_needed": restart_needed(),
         "delegation": deleg,
@@ -2391,12 +2393,12 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path.startswith("/island"):
             self._send((ROOT / "island.html").read_bytes(), "text/html; charset=utf-8")
         elif self.path.startswith("/api/data"):
-            fresh = "fresh=1" in self.path
+            fresh, lite = "fresh=1" in self.path, "lite=1" in self.path
             if time.time() - _claude_state.get("last_scan", 0) > 60:
                 _claude_state["last_scan"] = time.time()
                 threading.Thread(target=claude_scan, daemon=True).start()
             try:
-                body = json.dumps(snapshot(fresh), ensure_ascii=False).encode("utf-8")
+                body = json.dumps(snapshot(fresh, lite), ensure_ascii=False).encode("utf-8")
                 self._send(body, "application/json; charset=utf-8")
             except Exception as exc:
                 self._send(json.dumps({"error": str(exc)}).encode(), "application/json", 500)
