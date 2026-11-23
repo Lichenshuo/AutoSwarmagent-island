@@ -186,10 +186,19 @@ def counter_days(events, idx=1):
     return out
 
 
-def parse_codex_file(path):
-    info = {"id": None, "cwd": None, "originator": None, "tokens": None, "rate": None, "rate_ts": 0, "events": [], "model": None, "effort": None}
+def parse_codex_file(path, info=None, offset=0):
+    """Read a Codex session file from `offset` on, adding to `info` (a fresh one when None). Returns (info, new offset).
+    Session files grow to hundreds of MB, so a growing file is only read from where the last read stopped."""
+    if info is None:
+        info = {"id": None, "cwd": None, "originator": None, "tokens": None, "rate": None, "rate_ts": 0, "events": [], "model": None, "effort": None}
+        offset = 0
     with open(path, "rb") as fh:
-        for raw in fh:
+        fh.seek(offset)
+        while True:
+            raw = fh.readline()
+            if not raw or not raw.endswith(b"\n"):      # end of file, or a line still being written: pick it up next time
+                break
+            offset += len(raw)
             if b'"turn_context"' in raw:
                 try:
                     p = json.loads(raw).get("payload") or {}
@@ -222,7 +231,7 @@ def parse_codex_file(path):
                 if rl and (rl.get("primary") or rl.get("secondary")):
                     info["rate"] = rl
                     info["rate_ts"] = iso_to_ts(row.get("timestamp")) or 0
-    return info
+    return info, offset
 
 
 def codex_snapshot():
@@ -239,7 +248,9 @@ def codex_snapshot():
             key = (st.st_mtime, st.st_size)
             cached = _codex_cache.get(path)
             if not cached or cached[0] != key:
-                cached = (key, parse_codex_file(path))
+                prev = cached[1] if cached and st.st_size >= cached[2] else None     # grew: continue; shrank or new: start over
+                info, off = parse_codex_file(path, prev, cached[2] if prev else 0)
+                cached = (key, info, off)
                 _codex_cache[path] = cached
             info = cached[1]
             if info["id"]:
@@ -1331,6 +1342,26 @@ def _zstd_decompress(data):
         return None
 
 
+def _zstd_text(path):
+    """An open text stream over a zstd file, decompressed as it is read (never the whole file in memory), or None
+    when no decoder is installed. The caller closes it."""
+    try:
+        import zstandard
+        fh = open(path, "rb")
+        try:
+            return io.TextIOWrapper(io.BufferedReader(zstandard.ZstdDecompressor().stream_reader(fh)), encoding="utf-8", errors="replace")
+        except Exception:
+            fh.close()
+            raise
+    except ImportError:
+        pass
+    try:
+        from compression import zstd   # Python 3.14+
+        return io.TextIOWrapper(zstd.ZstdFile(path), encoding="utf-8", errors="replace")
+    except ImportError:
+        return None
+
+
 def _zstd_probe():
     try:
         import zstandard  # noqa: F401
@@ -1342,6 +1373,20 @@ def _zstd_probe():
         return True
     except ImportError:
         return False
+
+
+def _safe_lines(stream):
+    """Lines of a stream; a file cut off mid-write ends the loop instead of raising. Closes the stream."""
+    try:
+        for line in stream:
+            yield line
+    except Exception:
+        return
+    finally:
+        try:
+            stream.close()
+        except Exception:
+            pass
 
 
 def _dsh_time(t, created_ms):
@@ -1367,14 +1412,14 @@ def parse_dsh_session(path):
         if hit and hit[0] == stamp:
             return hit[1]
     try:
-        raw = _zstd_decompress(path.read_bytes())
+        stream = _zstd_text(path)
     except OSError:
         return None
-    if raw is None:
+    if stream is None:
         return None
     info = {"id": path.parent.name, "cwd": None, "provider": None, "model": None, "effort": None, "tokens": 0, "events": [], "msgs": [], "headers": []}
     created_ms, cum = None, 0
-    for line in raw.decode("utf-8", "replace").splitlines():
+    for line in _safe_lines(stream):
         if not line.strip():
             continue
         try:
