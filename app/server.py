@@ -1750,7 +1750,7 @@ DEFAULT_PRICES = [
     (r"claude-haiku-5", {"input": 0.1, "output": 0.5, "cache_read": 0.01, "cache_write": 0.125}),
     (r"claude-haiku", {"input": 1, "output": 5, "cache_read": 0.1, "cache_write": 1.25}),
     # OpenAI list prices from third-party price trackers (the official page could not be read), USD per 1M tokens
-    (r"gpt-6-astra", {"input": 10, "output": 50, "cache_read": 1}),
+    (r"gpt-6(\.\d+)?-astra", {"input": 10, "output": 50, "cache_read": 1}),
     (r"gpt-6\.1-sol", {"input": 2, "output": 10, "cache_read": 0.1}),
     (r"gpt-6\.1-terra", {"input": 1, "output": 5, "cache_read": 0.05}),
     (r"gpt-5\.6-terra", {"input": 2, "output": 12, "cache_read": 0.2}),
