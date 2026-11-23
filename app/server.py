@@ -1751,9 +1751,9 @@ DEFAULT_PRICES = [
     (r"claude-haiku", {"input": 1, "output": 5, "cache_read": 0.1, "cache_write": 1.25}),
     # OpenAI list prices from third-party price trackers (the official page could not be read), USD per 1M tokens
     (r"gpt-6(\.\d+)?-astra", {"input": 10, "output": 50, "cache_read": 1}),
-    (r"gpt-6\.1-sol", {"input": 2, "output": 10, "cache_read": 0.1}),
-    (r"gpt-6\.1-terra", {"input": 1, "output": 5, "cache_read": 0.05}),
-    (r"gpt-5\.6-terra", {"input": 2, "output": 12, "cache_read": 0.2}),
+    (r"gpt-6(\.\d+)?-sol", {"input": 2, "output": 10, "cache_read": 0.1}),
+    (r"gpt-6(\.\d+)?-terra", {"input": 1, "output": 5, "cache_read": 0.05}),
+    (r"gpt-5(\.\d+)?-terra", {"input": 2, "output": 12, "cache_read": 0.2}),
     (r"deepseek.*pro", {"input": 1.74, "output": 3.48, "cache_read": 0.145}),
     (r"deepseek", {"input": 0.14, "output": 0.28, "cache_read": 0.028}),
 ]
