@@ -2640,8 +2640,9 @@ def _ag_exe():
 def parse_agy_usage(text):
     """`agy --print "/usage"`: lines like  'Gemini Models  Five Hour Limit Remaining  93%  2026-11-27 06:43 PST'."""
     pools = []
-    for line in (text or "").splitlines():
-        m = re.match(r"^\s*(.+?)\s{2,}(Weekly|Five Hour|Daily|Monthly)\s+Limit Remaining\s+(\d+(?:\.\d+)?)%\s*(.*)$", line)
+    text = re.sub(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*\x07", "", text or "")      # colour / cursor codes when not on a plain console
+    for line in text.replace("\r", "\n").splitlines():
+        m = re.match(r"^\W*(.+?)\s+(Weekly|Five Hour|Daily|Monthly)\s+Limit Remaining\s+(\d+(?:\.\d+)?)\s*%\s*(.*)$", line, re.I)
         if not m:
             continue
         group, win, left, rest = m.group(1).strip(), m.group(2), float(m.group(3)), m.group(4).strip()
@@ -2669,12 +2670,15 @@ def _agy_usage():
             si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
             si.wShowWindow = 0
             kw = {"startupinfo": si, "creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
-        out = subprocess.run([exe, "--print", "/usage"], capture_output=True, text=True, errors="replace", timeout=45,
-                             stdin=subprocess.DEVNULL, cwd=str(HOME), **kw).stdout
+        run = subprocess.run([exe, "--print", "/usage"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8",
+                             errors="replace", timeout=45, stdin=subprocess.DEVNULL, cwd=str(HOME), **kw)
+        out = run.stdout or ""
     except Exception as exc:
         return {"present": True, "ok": False, "pools": [], "error": type(exc).__name__}
     pools = parse_agy_usage(out)
-    return {"present": True, "ok": bool(pools), "pools": pools, "method": "agy", "error": None if pools else "no_quota_in_output"}
+    snippet = re.sub(r"\s+", " ", re.sub(r"\x1b\[[0-9;?]*[A-Za-z]", "", out)).strip()[:160]
+    return {"present": True, "ok": bool(pools), "pools": pools, "method": "agy",
+            "error": None if pools else f"no_quota_in_output (exit {run.returncode}, {len(out)} chars): {snippet or '空输出'}"}
 
 
 def antigravity_snapshot():
