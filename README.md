@@ -8,7 +8,7 @@ A Dynamic-Island style status pill for Windows plus a local dashboard, for peopl
 
 **收起时**（始终在顶端）
 
-- Claude、Codex 各一个**双半环**：左半环是 5 小时额度，右半环是本周额度，旁边写着剩余百分比；绿 / 橙 / 红表示宽松到紧张
+- Claude、Codex 各一个**双半环**：左半环是 5 小时额度，右半环是本周额度，旁边写着剩余百分比；绿 / 橙 / 红表示宽松到紧张。装了 Antigravity 命令行 `agy` 时，再多一个 Antigravity（Gemini）的双环
 - 正在进行的副 agent 数、**待批准**数、**异常**数（为 0 时不显示）
 - 今日 Claude API 花费
 
@@ -69,6 +69,7 @@ powershell -ExecutionPolicy Bypass -File "$HOME\.claude\skills\agent-island\inst
 |---|---|
 | Claude 额度 | 终端里已登录的 Claude Code（`claude auth login`）→ 实时，登录令牌快过期时灵动岛会自动拉起一个无界面的 Claude Code 去续期（不发消息，不耗额度，用 Claude Code 自己的续期和锁，不会挤掉终端登录）；否则读 Claude 桌面端本地的用量采样（不定期更新，会标注采样时间） |
 | Codex 额度 | 每 3 分钟向 Codex 自己的 `codex app-server` 问一次当前额度（登录由 Codex 自己处理）；问不到时退回 `~/.codex/sessions` 里最新的 `rate_limits`，那只在 Codex 运行时才更新 |
+| Antigravity 额度 | 每 10 分钟在后台运行一次 `agy --print "/usage"` 并解析输出（需要先装好并登录 `agy`；没装就不显示）。5 小时 / 每周额度按 Gemini、Claude·GPT 两组分别显示 |
 | Claude API 花费 | OpenCode 数据库中每条消息的 `cost`；默认 `~/.local/share/opencode/opencode.db`，可在 `config.json` 里追加（见 `config.example.json`），v1 / v2 自动识别 |
 | Claude API 余额 | 有管理员密钥（`anthropic_admin_key`）时用官方 Cost API，精确；否则为"上次校准的余额 − 之后本地花费 × 修正系数"的估算 |
 | DSH（DeepSeek Harness）| 读 `~/.dsh/sessions` 下每个会话的 `session.v4.jsonl.zstd`（需要 `zstandard`，安装脚本会装）：每一轮的 token、模型、思考档位。DeepSeek 只有 API 计费：账号登录（`deepseek-account/…`）和 API 密钥的用量合并成一张 DeepSeek 卡 |
@@ -131,7 +132,7 @@ app/statusline.py   可选：Claude Code 终端状态栏，顺带记录额度
 
 每次发布都会在这里记一条，并打同名标签（`git tag`）。已装过的人 `git pull` 即可更新，更新后退出灵动岛再重开。
 
-### 0.006（开发中）
+### 0.006
 
 - 新增：收起状态的灵动岛里也显示 Antigravity 圆环（Gemini 的 5 小时 / 每周剩余），样式和 Claude、Codex 一致；读到数据才显示
 - 修复：灵动岛圆环多了会折成两排，收起时副 agent 名字太长会把后面的金额挤出岛外。现在展开后所有圆环永远一排（圆环多时文字改为竖排在圆环下面），收起时名字自动省略，相同名字合并成「Codex ×3」
