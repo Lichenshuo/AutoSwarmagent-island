@@ -344,10 +344,19 @@ function dshMini(p, ds) {
   return `<span class="vm" title="${esc(p.name)}"><span style="color:var(--t3);font-weight:500">${esc(p.name.split(' / ')[0])}</span><span>≈${shortMoney(p.cost_all, p.currency)}</span></span>`;
 }
 const shortMoney = (v, cur) => (CUR[cur] || (cur || '') + ' ') + (v >= 10 ? v.toFixed(0) : v.toFixed(1));
+function agTile(a) {
+  const pools = a.pools || [], low = pools.length ? Math.min(...pools.map(p => p.left)) : null;
+  const lines = pools.slice(0, 2).map(p => `<div style="color:${tone(p.left)}"><div class="line num"><span style="color:var(--t2)">${esc(String(p.name).replace(/\s*Models?/i, '').slice(0, COL ? 8 : 14))}</span> <b>${Math.round(p.left)}%</b></div>
+    <div class="qnote num">${p.resets_at ? span(p.resets_at - now()) + '后重置' : esc(p.note || '')}</div></div>`).join('');
+  const warn = a.ok ? '' : '<div class="twarn" title="' + esc('读不到 Antigravity 额度：' + (a.error || '')) + '">读不到额度</div>';
+  return `<div class="tile" title="Google Antigravity 额度，来自本机 Antigravity 的本地服务">${creditRing(low, 46, 'A')}<div>
+    <div class="tile-k">Antigravity</div>${lines || (a.ok ? '' : '<div class="qnote num">暂无数据</div>')}${warn}</div></div>`;
+}
 function renderTiles(d) {
   const ds = d.dsh?.present ? d.dsh : null, top = $('#tiles'), chips = $('#apitiles');
   COL = !!ds;
   const parts = [quotaTile('Claude', d.claude, 'C'), quotaTile('Codex', d.codex, 'X')];
+  if (d.antigravity?.present) parts.push(agTile(d.antigravity));
   if (!ds) {                                               // no DSH: the original three tiles (OpenCode-based API tile)
     parts.push(apiTile(d.api));
     chips.hidden = true;

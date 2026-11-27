@@ -2519,8 +2519,136 @@ def _island_calls(calls, dismissed):
     return keep[:60]
 
 
+# ── Google Antigravity quota ──────────────────────────────────────────────
+# Antigravity has no public quota API. Its own local language server answers on a loopback HTTPS port; we find that
+# process, take its --csrf_token from the command line, and ask it. Nothing is sent to Google and no login is touched.
+# The wire format below comes from community write-ups (not verified on a real install), so every step fails soft.
+_ag_state = {}
+_AG_SVC = "/exa.language_server_pb.LanguageServerService/"
+
+
+def _ag_run(cmd, timeout=8):
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, errors="replace", timeout=timeout,
+                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout or ""
+    except Exception:
+        return ""
+
+
+def _ag_processes():
+    """[(pid, command line)] of Antigravity's language server processes."""
+    if os.name == "nt":
+        ps = ("Get-CimInstance Win32_Process | Where-Object { $_.Name -like 'language_server*' } | "
+              "ForEach-Object { \"$($_.ProcessId)`t$($_.CommandLine)\" }")
+        text = _ag_run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps], 15)
+    else:
+        text = _ag_run(["ps", "-ax", "-o", "pid=,command="])
+    found = []
+    for line in text.splitlines():
+        pid, _, cmd = line.strip().partition("\t" if os.name == "nt" else " ")
+        cmd = cmd.strip()
+        if not pid.isdigit() or "--csrf_token" not in cmd:
+            continue
+        exe = re.match(r'\s*"?([^"]*?)"?(\s|$)', cmd).group(1) if cmd.startswith('"') else cmd.split(" ")[0]
+        if re.search(r"antigravity", cmd, re.I) and re.match(r"language[_-]server", re.split(r"[\\/]", exe)[-1], re.I):
+            found.append((int(pid), cmd))
+    return found
+
+
+def _ag_ports(pid):
+    ports = set()
+    if os.name == "nt":
+        for line in _ag_run(["netstat", "-ano", "-p", "tcp"]).splitlines():
+            parts = line.split()
+            if len(parts) >= 5 and parts[3] == "LISTENING" and parts[4] == str(pid):
+                m = re.search(r":(\d+)$", parts[1])
+                if m:
+                    ports.add(int(m.group(1)))
+    else:
+        for m in re.finditer(r":(\d+) \(LISTEN\)", _ag_run(["lsof", "-nP", "-iTCP", "-sTCP:LISTEN", "-a", "-p", str(pid)])):
+            ports.add(int(m.group(1)))
+    return sorted(ports)
+
+
+def _ag_call(port, token, method, timeout=6):
+    import ssl
+    ctx = ssl.create_default_context()
+    ctx.check_hostname, ctx.verify_mode = False, ssl.CERT_NONE        # loopback, self-signed
+    body = json.dumps({"metadata": {"ideName": "antigravity", "extensionName": "antigravity", "locale": "en", "ideVersion": "unknown"}}).encode()
+    req = urllib.request.Request(f"https://127.0.0.1:{port}{_AG_SVC}{method}", data=body, method="POST",
+                                 headers={"Content-Type": "application/json", "Connect-Protocol-Version": "1", "X-Codeium-Csrf-Token": token})
+    with urllib.request.urlopen(req, timeout=timeout, context=ctx) as r:
+        return json.loads(r.read().decode("utf-8", "replace"))
+
+
+def _ag_left(frac):
+    try:
+        return max(0.0, min(100.0, float(frac) * 100))
+    except (TypeError, ValueError):
+        return None
+
+
+def parse_antigravity_quota(data):
+    """Quota pools from either answer shape: [{name, left (0-100), resets_at, note}]."""
+    pools = []
+    for g in (data or {}).get("groups") or []:                       # RetrieveUserQuotaSummary
+        for b in g.get("buckets") or []:
+            rem = b.get("remaining")
+            left = _ag_left(rem.get("remainingFraction") if isinstance(rem, dict) else b.get("remainingFraction"))
+            if left is not None:
+                pools.append({"name": f"{g.get('displayName') or ''} {b.get('displayName') or ''}".strip(), "left": left,
+                              "resets_at": None, "note": b.get("description")})
+    if pools:
+        return pools
+    cfgs = ((((data or {}).get("userStatus") or {}).get("cascadeModelConfigData") or {}).get("clientModelConfigs")
+            or (data or {}).get("clientModelConfigs") or [])
+    seen = {}
+    for c in cfgs:                                                  # GetUserStatus: one row per model; models share pools
+        q = c.get("quotaInfo") or {}
+        left = _ag_left(q.get("remainingFraction"))
+        if left is None:
+            continue
+        rt = q.get("resetTime")
+        ts = iso_to_ts(rt) if isinstance(rt, str) else (float(rt) if isinstance(rt, (int, float)) else None)
+        key = (round(left, 1), ts)
+        if key not in seen:
+            seen[key] = {"name": c.get("label") or c.get("displayName") or "模型", "left": left, "resets_at": ts, "note": None, "n": 1}
+        else:
+            seen[key]["n"] += 1
+    for v in seen.values():
+        if v.pop("n") > 1:
+            v["name"] += " 等"
+        pools.append(v)
+    return pools
+
+
+def antigravity_snapshot():
+    procs = _ag_processes()
+    if not procs:
+        _ag_state.clear()
+        return {"present": False}
+    out = {"present": True, "ok": False, "pools": [], "error": "no_endpoint"}
+    for pid, cmd in procs:
+        m = re.search(r"--csrf_token[= ]+([A-Za-z0-9._-]+)", cmd)
+        token = m.group(1) if m else ""
+        cand = ([_ag_state["port"]] if _ag_state.get("pid") == pid and _ag_state.get("port") else []) + [p for p in _ag_ports(pid) if p != _ag_state.get("port")]
+        for port in cand:
+            for method in ("RetrieveUserQuotaSummary", "GetUserStatus"):
+                try:
+                    pools = parse_antigravity_quota(_ag_call(port, token, method))
+                except Exception as exc:
+                    out["error"] = type(exc).__name__
+                    continue
+                if pools:
+                    _ag_state.update({"pid": pid, "port": port})
+                    return {"present": True, "ok": True, "pools": pools, "method": method}
+                out["error"] = "no_quota_in_answer"
+    _ag_state.clear()
+    return out
+
+
 # How often each part is re-read in the background (seconds). Longer = less disk and CPU.
-TTL = {"codex": 30, "api": 60, "calls": 4, "claude": 15, "dsh": 30, "claude-subagents": 6, "arch-sessions": 15}
+TTL = {"antigravity": 120, "codex": 30, "api": 60, "calls": 4, "claude": 15, "dsh": 30, "claude-subagents": 6, "arch-sessions": 15}
 
 
 def snapshot(fresh=False, lite=False):
@@ -2534,6 +2662,7 @@ def snapshot(fresh=False, lite=False):
     for c in calls:
         c["dismissed"] = c["call_id"] in dismissed
     claude_now = _guard(errors, "claude", lambda: cached("claude", TTL["claude"], claude_snapshot), {"sessions": [], "windows": []})
+    ag_now = _guard(errors, "antigravity", lambda: cached("antigravity", TTL["antigravity"], antigravity_snapshot), {"present": False})
     dsh_now = _guard(errors, "dsh", lambda: cached("dsh", TTL["dsh"], dsh_snapshot), {"present": False, "providers": []})
     out = {
         "generated_at": time.time(),
@@ -2544,6 +2673,7 @@ def snapshot(fresh=False, lite=False):
         "dismissed": sorted(dismissed),
         "restart_needed": restart_needed(),
         "dsh": dsh_now,
+        "antigravity": ag_now,
         "errors": errors,
     }
     if lite:
