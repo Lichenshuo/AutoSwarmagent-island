@@ -126,6 +126,7 @@ html,body{background:transparent;overflow:hidden;font-family:var(--font);-webkit
     <div class="normal">
       <div class="quota" id="c-claude"></div>
       <div class="quota" id="c-codex"></div>
+      <div class="quota" id="c-ag" hidden></div>
       <div class="sep"></div>
       <div class="chips num" id="c-chips"></div>
       <div class="spend num" id="c-spend"></div>
@@ -241,6 +242,11 @@ function compact(d) {
       ? creditRing(q.long?.left, 26, letter) + `<div class="pair num"><span><i>周</i>${pct(q.long)}</span></div>`
       : splitRing(q, letter, 26) + `<div class="pair num"><span><i>5h</i>${pct(q.short)}</span><span><i>周</i>${pct(q.long)}</span></div>`;
   }
+  const ag = d.antigravity, gem = (ag?.pools || []).filter(p => /gemini/i.test(p.group || p.name)), f = gem.find(p => p.window === '5h'), w = gem.find(p => p.window === 'week');
+  $('#c-ag').hidden = !(ag?.ok && (f || w));          // only when Antigravity was actually read
+  if (!$('#c-ag').hidden) $('#c-ag').innerHTML = f && w
+    ? splitRing({ short: f, long: w }, 'A', 26) + `<div class="pair num"><span><i>5h</i>${pct(f)}</span><span><i>周</i>${pct(w)}</span></div>`
+    : creditRing((f || w).left, 26, 'A') + `<div class="pair num"><span><i>${f ? '5h' : '周'}</i>${pct(f || w)}</span></div>`;
   const chips = [], bad = alerts(d.calls).length;
   const names = st => d.calls.filter(c => !c.probe && c.state === st).map(who);
   const label = (list, word) => {      // same name several times → "Codex ×3"; many different names → a count
