@@ -345,11 +345,17 @@ function dshMini(p, ds) {
 }
 const shortMoney = (v, cur) => (CUR[cur] || (cur || '') + ' ') + (v >= 10 ? v.toFixed(0) : v.toFixed(1));
 function agTile(a) {
-  const pools = a.pools || [], low = pools.length ? Math.min(...pools.map(p => p.left)) : null;
-  const lines = pools.slice(0, 2).map(p => `<div style="color:${tone(p.left)}"><div class="line num"><span style="color:var(--t2)">${esc(String(p.name).replace(/\s*Models?/i, '').slice(0, COL ? 8 : 14))}</span> <b>${Math.round(p.left)}%</b></div>
-    <div class="qnote num">${p.resets_at ? span(p.resets_at - now()) + '后重置' : esc(p.note || '')}</div></div>`).join('');
+  const pools = a.pools || [], five = pools.filter(p => p.window === '5h'), low = pools.length ? Math.min(...(five.length ? five : pools).map(p => p.left)) : null;
+  const groups = {};
+  pools.forEach(p => (groups[p.group || p.name] = groups[p.group || p.name] || []).push(p));
+  const lines = Object.entries(groups).slice(0, 2).map(([g, ps]) => {
+    const f = ps.find(p => p.window === '5h'), w = ps.find(p => p.window === 'week'), first = f || ps[0];
+    const val = [f ? `${COL ? '5h' : '5小时'} <b>${Math.round(f.left)}%</b>` : '', w ? `周 <b>${Math.round(w.left)}%</b>` : ''].filter(Boolean).join(' · ') || `<b>${Math.round(first.left)}%</b>`;
+    return `<div style="color:${tone(Math.min(...ps.map(p => p.left)))}"><div class="line num"><span style="color:var(--t2)">${esc(g)}</span> ${val}</div>
+      <div class="qnote num">${first.resets_at && first.left < 100 ? span(first.resets_at - now()) + '后重置' : ''}</div></div>`;
+  }).join('');
   const warn = a.ok ? '' : '<div class="twarn" title="' + esc('读不到 Antigravity 额度：' + (a.error || '')) + '">读不到额度</div>';
-  return `<div class="tile" title="Google Antigravity 额度，来自本机 Antigravity 的本地服务">${creditRing(low, 46, 'A')}<div>
+  return `<div class="tile" title="Google Antigravity 额度，来自 agy /usage">${creditRing(low, 46, 'A')}<div>
     <div class="tile-k">Antigravity</div>${lines || (a.ok ? '' : '<div class="qnote num">暂无数据</div>')}${warn}</div></div>`;
 }
 function renderTiles(d) {

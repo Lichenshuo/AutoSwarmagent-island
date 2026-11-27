@@ -2622,7 +2622,65 @@ def parse_antigravity_quota(data):
     return pools
 
 
+_AG_TZ = {"PST": -8, "PDT": -7, "MST": -7, "MDT": -6, "EST": -5, "EDT": -4, "UTC": 0, "GMT": 0, "CET": 1, "CEST": 2, "JST": 9, "CST": 8}
+
+
+def _ag_exe():
+    import shutil as _sh
+    found = _sh.which("agy")
+    if found:
+        return found
+    local = os.environ.get("LOCALAPPDATA")
+    for c in ([Path(local) / "agy" / "bin" / "agy.exe"] if local else []) + [HOME / ".local" / "bin" / "agy"]:
+        if c.is_file():
+            return str(c)
+    return None
+
+
+def parse_agy_usage(text):
+    """`agy --print "/usage"`: lines like  'Gemini Models  Five Hour Limit Remaining  93%  2026-11-27 06:43 PST'."""
+    pools = []
+    for line in (text or "").splitlines():
+        m = re.match(r"^\s*(.+?)\s{2,}(Weekly|Five Hour|Daily|Monthly)\s+Limit Remaining\s+(\d+(?:\.\d+)?)%\s*(.*)$", line)
+        if not m:
+            continue
+        group, win, left, rest = m.group(1).strip(), m.group(2), float(m.group(3)), m.group(4).strip()
+        ts = None
+        t = re.match(r"(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})\s*([A-Z]{2,5})?", rest)
+        if t and int(t.group(1)) > 1971:                      # 1969-12-31 = "no reset pending" (the window is untouched)
+            tz = _AG_TZ.get(t.group(6) or "")
+            naive = datetime(*[int(x) for x in t.groups()[:5]])
+            ts = (naive.replace(tzinfo=timezone(timedelta(hours=tz))) if tz is not None else naive.astimezone()).timestamp()
+        short = "Gemini" if group.lower().startswith("gemini") else "Claude·GPT" if re.search(r"claude|gpt", group, re.I) else group
+        pools.append({"name": f"{short} {'5h' if win == 'Five Hour' else '周' if win == 'Weekly' else win}", "group": short,
+                      "window": "5h" if win == "Five Hour" else "week" if win == "Weekly" else win.lower(),
+                      "left": max(0.0, min(100.0, left)), "resets_at": ts, "note": None})
+    return pools
+
+
+def _agy_usage():
+    exe = _ag_exe()
+    if not exe:
+        return None
+    try:
+        kw = {}
+        if os.name == "nt":
+            si = subprocess.STARTUPINFO()
+            si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            si.wShowWindow = 0
+            kw = {"startupinfo": si, "creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
+        out = subprocess.run([exe, "--print", "/usage"], capture_output=True, text=True, errors="replace", timeout=45,
+                             stdin=subprocess.DEVNULL, cwd=str(HOME), **kw).stdout
+    except Exception as exc:
+        return {"present": True, "ok": False, "pools": [], "error": type(exc).__name__}
+    pools = parse_agy_usage(out)
+    return {"present": True, "ok": bool(pools), "pools": pools, "method": "agy", "error": None if pools else "no_quota_in_output"}
+
+
 def antigravity_snapshot():
+    viaagy = _agy_usage()
+    if viaagy is not None:
+        return viaagy
     procs = _ag_processes()
     if not procs:
         _ag_state.clear()
@@ -2648,7 +2706,7 @@ def antigravity_snapshot():
 
 
 # How often each part is re-read in the background (seconds). Longer = less disk and CPU.
-TTL = {"antigravity": 120, "codex": 30, "api": 60, "calls": 4, "claude": 15, "dsh": 30, "claude-subagents": 6, "arch-sessions": 15}
+TTL = {"antigravity": 600, "codex": 30, "api": 60, "calls": 4, "claude": 15, "dsh": 30, "claude-subagents": 6, "arch-sessions": 15}
 
 
 def snapshot(fresh=False, lite=False):
