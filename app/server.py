@@ -2637,6 +2637,23 @@ def _ag_exe():
     return None
 
 
+def _ag_time(rest):
+    """Reset time in agy's wording → epoch seconds, or None (also None for the 1969 'nothing pending' placeholder)."""
+    t = re.search(r"(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::\d{2})?(?:\.\d+)?\s*(Z|[+-]\d{2}:?\d{2}|[A-Z]{2,5})?", rest or "")
+    if not t or int(t.group(1)) < 1971:
+        return None
+    naive, tzs = datetime(*[int(x) for x in t.groups()[:5]]), t.group(6)
+    if tzs in ("Z", "UTC", "GMT"):
+        tz = 0
+    elif tzs and re.match(r"[+-]\d", tzs):
+        sign = -1 if tzs[0] == "-" else 1
+        d = tzs[1:].replace(":", "")
+        tz = sign * (int(d[:2]) + int(d[2:] or 0) / 60)
+    else:
+        tz = _AG_TZ.get(tzs or "")
+    return (naive.replace(tzinfo=timezone(timedelta(hours=tz))) if tz is not None else naive.astimezone()).timestamp()
+
+
 def parse_agy_usage(text):
     """`agy --print "/usage"`: lines like  'Gemini Models  Five Hour Limit Remaining  93%  2026-11-27 06:43 PST'."""
     pools = []
@@ -2646,16 +2663,12 @@ def parse_agy_usage(text):
         if not m:
             continue
         group, win, left, rest = m.group(1).strip(), m.group(2), float(m.group(3)), m.group(4).strip()
-        ts = None
-        t = re.match(r"(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})\s*([A-Z]{2,5})?", rest)
-        if t and int(t.group(1)) > 1971:                      # 1969-12-31 = "no reset pending" (the window is untouched)
-            tz = _AG_TZ.get(t.group(6) or "")
-            naive = datetime(*[int(x) for x in t.groups()[:5]])
-            ts = (naive.replace(tzinfo=timezone(timedelta(hours=tz))) if tz is not None else naive.astimezone()).timestamp()
+        ts = _ag_time(rest)
+        note = None if (ts or not rest or re.match(r"^\W*1969", rest)) else rest[:40]      # unparseable wording is shown as it is
         short = "Gemini" if group.lower().startswith("gemini") else "Claude·GPT" if re.search(r"claude|gpt", group, re.I) else group
         pools.append({"name": f"{short} {'5h' if win == 'Five Hour' else '周' if win == 'Weekly' else win}", "group": short,
                       "window": "5h" if win == "Five Hour" else "week" if win == "Weekly" else win.lower(),
-                      "left": max(0.0, min(100.0, left)), "resets_at": ts, "note": None})
+                      "left": max(0.0, min(100.0, left)), "resets_at": ts, "note": note})
     return pools
 
 

@@ -268,7 +268,7 @@ function compact(d) {
 function quotaLine(side, name, w) {
   let note = '暂无数据';
   if (w) note = w.blocked ? '周额度用完 · ' + span(w.resets_at - now()) + '后恢复'
-    : w.resets_at ? span(w.resets_at - now()) + '后重置' : (w.sampled ? ago(w.sampled) + (w.guess ? '读数，已过重置点' : '采样') : '');
+    : w.resets_at ? span(w.resets_at - now()) + '后重置' : w.note ? esc(w.note) : (w.sampled ? ago(w.sampled) + (w.guess ? '读数，已过重置点' : '采样') : '');
   return `<div style="color:${tone(w?.left)}"><div class="line num">${side === 'full' ? fullIcon : halfIcon(side)}<span style="color:var(--t2)">${name}</span>
     <b>${pct(w)}</b></div><div class="qnote num">${note}</div></div>`;
 }
