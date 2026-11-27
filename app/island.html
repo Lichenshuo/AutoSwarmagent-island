@@ -37,8 +37,10 @@ html,body{background:transparent;overflow:hidden;font-family:var(--font);-webkit
 .pair span{display:flex;gap:4px;justify-content:space-between}
 .pair i{font-style:normal;color:var(--t3);font-weight:500}
 .sep{width:1px;height:16px;background:var(--hair)}
-.chips{display:flex;gap:10px;align-items:center;font-size:13px;font-weight:600}
-.chip{display:inline-flex;align-items:center;gap:6px}
+.chips{display:flex;gap:10px;align-items:center;font-size:13px;font-weight:600;flex:0 1 auto;min-width:0;overflow:hidden}
+.chip{display:inline-flex;align-items:center;gap:6px;min-width:0}
+.chip .ct{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.quota,.sep,.spend{flex:none}
 .dot{width:7px;height:7px;border-radius:50%;flex:none}
 .dot.g{background:var(--green);animation:pulse 2s infinite}
 .dot.o{background:var(--orange)}
@@ -241,10 +243,13 @@ function compact(d) {
   }
   const chips = [], bad = alerts(d.calls).length;
   const names = st => d.calls.filter(c => !c.probe && c.state === st).map(who);
-  const label = (list, word) => list.length <= 3 ? list.join(' · ') : `${list.length} ${word}`;
+  const label = (list, word) => {      // same name several times → "Codex ×3"; many different names → a count
+    const n = new Map(); list.forEach(x => n.set(x, (n.get(x) || 0) + 1));
+    return n.size <= 2 ? [...n].map(([k, v]) => v > 1 ? `${k} ×${v}` : k).join(' · ') : `${list.length} ${word}`;
+  };
   const running = names('running'), waiting = names('waiting');
-  if (running.length) chips.push(`<span class="chip"><span class="dot g"></span>${esc(label(running, '进行中'))}</span>`);
-  if (waiting.length) chips.push(`<span class="chip" style="color:var(--orange)"><span class="dot o"></span>${esc(label(waiting, '待批准'))} 待批准</span>`);
+  if (running.length) chips.push(`<span class="chip"><span class="dot g"></span><span class="ct">${esc(label(running, '进行中'))}</span></span>`);
+  if (waiting.length) chips.push(`<span class="chip" style="color:var(--orange)"><span class="dot o"></span><span class="ct">${esc(label(waiting, '待批准'))} 待批准</span></span>`);
   if (bad) chips.push(`<span class="chip" style="color:var(--red)"><span class="dot r"></span>${bad} 异常</span>`);
   $('#c-chips').innerHTML = chips.join('') || '<span class="idle">空闲</span>';
   const b = d.api.billing || {};
@@ -344,25 +349,26 @@ function dshMini(p, ds) {
   return `<span class="vm" title="${esc(p.name)}"><span style="color:var(--t3);font-weight:500">${esc(p.name.split(' / ')[0])}</span><span>≈${shortMoney(p.cost_all, p.currency)}</span></span>`;
 }
 const shortMoney = (v, cur) => (CUR[cur] || (cur || '') + ' ') + (v >= 10 ? v.toFixed(0) : v.toFixed(1));
-function agTile(a) {
-  const pools = a.pools || [], five = pools.filter(p => p.window === '5h'), low = pools.length ? Math.min(...(five.length ? five : pools).map(p => p.left)) : null;
+function agTiles(a) {      // one tile per quota group (Gemini; Claude·GPT only once it has been used), drawn like the Claude tile
   const groups = {};
-  pools.forEach(p => (groups[p.group || p.name] = groups[p.group || p.name] || []).push(p));
-  const lines = Object.entries(groups).slice(0, 2).map(([g, ps]) => {
-    const f = ps.find(p => p.window === '5h'), w = ps.find(p => p.window === 'week'), first = f || ps[0];
-    const val = [f ? `${COL ? '5h' : '5小时'} <b>${Math.round(f.left)}%</b>` : '', w ? `周 <b>${Math.round(w.left)}%</b>` : ''].filter(Boolean).join(' · ') || `<b>${Math.round(first.left)}%</b>`;
-    return `<div style="color:${tone(Math.min(...ps.map(p => p.left)))}"><div class="line num"><span style="color:var(--t2)">${esc(g)}</span> ${val}</div>
-      <div class="qnote num">${first.resets_at && first.left < 100 ? span(first.resets_at - now()) + '后重置' : ''}</div></div>`;
-  }).join('');
-  const warn = a.ok ? '' : '<div class="twarn" title="' + esc('读不到 Antigravity 额度：' + (a.error || '')) + '">读不到额度</div>';
-  return `<div class="tile" title="Google Antigravity 额度，来自 agy /usage">${creditRing(low, 46, 'A')}<div>
-    <div class="tile-k">Antigravity</div>${lines || (a.ok ? '' : '<div class="qnote num">暂无数据</div>')}${warn}</div></div>`;
+  (a.pools || []).forEach(p => (groups[p.group || p.name] = groups[p.group || p.name] || []).push(p));
+  const out = Object.entries(groups).filter(([g, ps]) => /gemini/i.test(g) || ps.some(p => p.left < 100)).map(([g, ps]) => {
+    const f = ps.find(p => p.window === '5h'), w = ps.find(p => p.window === 'week');
+    const q = { short: f || null, long: w || null }, only = !f || !w;
+    return `<div class="tile" title="Google Antigravity · ${esc(g)} 额度（agy /usage）">${only ? creditRing((f || w || ps[0]).left, 46, 'A') : splitRing(q, 'A', 46)}<div>
+      <div class="tile-k">AG · ${esc(g)}</div>${only ? quotaLine('full', COL ? (f ? '5h' : '周') : (f ? '5 小时' : '本周'), f || w || ps[0]) : quotaLine('left', COL ? '5h' : '5 小时', f) + quotaLine('right', COL ? '周' : '本周', w)}</div></div>`;
+  });
+  if (!out.length) {
+    const why = a.error || 'unknown';
+    out.push(`<div class="tile"><div class="ring" style="width:46px;height:46px"></div><div><div class="tile-k">Antigravity</div><div class="twarn" title="${esc(why)}">读不到 · ${esc(String(why).slice(0, 22))}</div></div></div>`);
+  }
+  return out;
 }
 function renderTiles(d) {
   const ds = d.dsh?.present ? d.dsh : null, top = $('#tiles'), chips = $('#apitiles');
-  COL = !!ds;
+  COL = !!ds || !!d.antigravity?.present;                  // 4+ rings: stack text under each ring so nothing is cut off
   const parts = [quotaTile('Claude', d.claude, 'C'), quotaTile('Codex', d.codex, 'X')];
-  if (d.antigravity?.present) parts.push(agTile(d.antigravity));
+  if (d.antigravity?.present) parts.push(...agTiles(d.antigravity));
   if (!ds) {                                               // no DSH: the original three tiles (OpenCode-based API tile)
     parts.push(apiTile(d.api));
     chips.hidden = true;
@@ -372,7 +378,7 @@ function renderTiles(d) {
     chips.hidden = !rest.length;
     chips.innerHTML = rest.map(p => dshChip(p, ds)).join('');
   }
-  top.style.gridTemplateColumns = `repeat(${Math.min(5, parts.length)},minmax(0,1fr))`;
+  top.style.gridTemplateColumns = `repeat(${Math.min(7, parts.length)},minmax(0,1fr))`;
   top.classList.toggle('col', COL);
   top.innerHTML = parts.join('');
   const warns = (d.setup || []).filter(i => i.level === 'warn'), hint = $('#setup-hint');
